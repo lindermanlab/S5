@@ -487,7 +487,7 @@ class PathFinder(ImageResolutionSequenceDataset):
             )
 
         if self.cache_dir is not None:
-            if Path(self.cache_dir / self._cache_dir_name).exists():
+            if Path(self.cache_dir / (self._cache_dir_name + '.pt')).exists():
                 with open(self.cache_dir / (self._cache_dir_name + '.pt'), 'rb') as f:
                     dset = torch.load(f)
                 self.dataset_train = dset['train']
