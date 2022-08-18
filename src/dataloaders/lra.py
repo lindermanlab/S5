@@ -493,7 +493,7 @@ class PathFinder(ImageResolutionSequenceDataset):
                 self.dataset_train = dset['train']
                 self.dataset_val = dset['val']
                 self.dataset_test = dset['test']
-            return None
+                return None
 
         if stage == "test" and hasattr(self, "dataset_test"):
             return
