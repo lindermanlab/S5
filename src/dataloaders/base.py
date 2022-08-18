@@ -11,14 +11,16 @@ import torchaudio.functional as TF
 import torchvision
 from einops import rearrange
 from einops.layers.torch import Rearrange
-from src.utils import is_list, permutations
+from src.utils import is_list
 from torch.nn import functional as F
+
 
 def deprecated(cls_or_func):
     def _deprecated(*args, **kwargs):
         print(f"{cls_or_func} is deprecated")
         return cls_or_func(*args, **kwargs)
     return _deprecated
+
 
 # Default data path is environment variable or hippo/data
 if (default_data_path := os.getenv("DATA_PATH")) is None:
@@ -27,10 +29,14 @@ if (default_data_path := os.getenv("DATA_PATH")) is None:
 else:
     default_data_path = Path(default_data_path).absolute()
 
+
 class DefaultCollateMixin:
     """Controls collating in the DataLoader
 
-    The CollateMixin classes instantiate a dataloader by separating collate arguments with the rest of the dataloader arguments. Instantiations of this class should modify the callback functions as desired, and modify the collate_args list. The class then defines a _dataloader() method which takes in a DataLoader constructor and arguments, constructs a collate_fn based on the collate_args, and passes the rest of the arguments into the constructor.
+    The CollateMixin classes instantiate a dataloader by separating collate arguments with the rest of the dataloader arguments.
+    Instantiations of this class should modify the callback functions as desired, and modify the collate_args list. The class then defines a
+    _dataloader() method which takes in a DataLoader constructor and arguments, constructs a collate_fn based on the collate_args, and passes the
+    rest of the arguments into the constructor.
     """
 
     @classmethod
@@ -140,8 +146,8 @@ class SequenceResolutionCollateMixin(DefaultCollateMixin):
     def _return_callback(cls, return_value, resolution=None):
         return *return_value, {"rate": resolution}
 
-
     collate_args = ['resolution']
+
 
 class ImageResolutionCollateMixin(SequenceResolutionCollateMixin):
     """self.collate_fn(resolution, img_size) produces a collate function that resizes inputs to size img_size/resolution"""
@@ -172,6 +178,7 @@ class ImageResolutionCollateMixin(SequenceResolutionCollateMixin):
         return *return_value, {"rate": resolution}
 
     collate_args = ['resolution', 'img_size', 'channels_last']
+
 
 class TBPTTDataLoader(torch.utils.data.DataLoader):
     """
@@ -236,14 +243,16 @@ class TBPTTDataLoader(torch.utils.data.DataLoader):
 
 
 # class SequenceDataset(LightningDataModule):
-# [21-09-10 AG] Subclassing LightningDataModule fails due to trying to access _has_setup_fit. No idea why. So we just provide our own class with the same core methods as LightningDataModule (e.g. setup)
+# [21-09-10 AG] Subclassing LightningDataModule fails due to trying to access _has_setup_fit. No idea why. So we just
+# provide our own class with the same core methods as LightningDataModule (e.g. setup)
 class SequenceDataset(DefaultCollateMixin):
     registry = {}
     _name_ = NotImplementedError("Dataset must have shorthand name")
 
     # Since subclasses do not specify __init__ which is instead handled by this class
     # Subclasses can provide a list of default arguments which are automatically registered as attributes
-    # TODO it might be possible to write this as a @dataclass, but it seems tricky to separate from the other features of this class such as the _name_ and d_input/d_output
+    # TODO it might be possible to write this as a @dataclass, but it seems tricky to separate from the other features of this class
+    #  such as the _name_ and d_input/d_output
     @property
     def init_defaults(self):
         return {}
@@ -311,6 +320,7 @@ class SequenceDataset(DefaultCollateMixin):
     def __str__(self):
         return self._name_
 
+
 class ResolutionSequenceDataset(SequenceDataset, SequenceResolutionCollateMixin):
 
     def _train_dataloader(self, dataset, train_resolution=None, eval_resolutions=None, **kwargs):
@@ -336,13 +346,14 @@ class ResolutionSequenceDataset(SequenceDataset, SequenceResolutionCollateMixin)
             if dataloaders is not None else None
         )
 
+
 class ImageResolutionSequenceDataset(ResolutionSequenceDataset, ImageResolutionCollateMixin):
     pass
-
 
 
 # Registry for dataloader class
 loader_registry = {
     "tbptt": TBPTTDataLoader,
-    None: torch.utils.data.DataLoader, # default case
+    None: torch.utils.data.DataLoader,  # default case
 }
+

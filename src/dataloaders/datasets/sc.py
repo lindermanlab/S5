@@ -53,6 +53,7 @@ def normalise_data(X, y):
     out = torch.stack(out, dim=-1)
     return out
 
+
 def normalize_all_data(X_train, X_val, X_test):
 
     for i in range(X_train.shape[-1]):
@@ -64,10 +65,12 @@ def normalize_all_data(X_train, X_val, X_test):
 
     return X_train, X_val, X_test
 
+
 def minmax_scale(tensor):
     min_val = torch.amin(tensor, dim=(1, 2), keepdim=True)
     max_val = torch.amax(tensor, dim=(1, 2), keepdim=True)
     return (tensor - min_val) / (max_val - min_val)
+
 
 def mu_law_encode(audio, bits=8):
     """
@@ -86,6 +89,7 @@ def mu_law_encode(audio, bits=8):
     # Quantize signal to the specified number of levels.
     return ((encoded + 1) / 2 * mu + 0.5).to(torch.int32)
 
+
 def mu_law_decode(encoded, bits=8):
     """
     Perform inverse mu-law transformation.
@@ -97,6 +101,7 @@ def mu_law_decode(encoded, bits=8):
     # Invert the mu-law transformation
     x = torch.sign(x) * ((1 + mu)**(torch.abs(x)) - 1) / mu
     return x
+
 
 def split_data(tensor, stratify):
     # 0.7/0.15/0.15 train/val/test split
@@ -361,7 +366,6 @@ class _SpeechCommands(torch.utils.data.TensorDataset):
             val_y,
             test_y,
         )
-
 
     def _process_data(self, mfcc):
         base_loc = self.root / "SpeechCommands"

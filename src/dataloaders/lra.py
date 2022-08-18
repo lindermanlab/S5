@@ -48,8 +48,11 @@ class IMDB(SequenceDataset):
 
     def setup(self, stage=None):
         """If cache_dir is not None, we'll cache the processed dataset there."""
-        self.data_dir = self.data_dir or default_data_path / self._name_
-        self.cache_dir = self.data_dir / "cache"
+
+        # # NOTE - AW - we manually set these elsewhere.
+        # self.data_dir = self.data_dir or default_data_path / self._name_
+        # self.cache_dir = self.data_dir / "cache"
+
         assert self.level in [
             "word",
             "char",
@@ -413,6 +416,7 @@ class PathFinderDataset(torch.utils.data.Dataset):
             sample = self.transform(sample)
         return sample, target
 
+
 class PathFinder(ImageResolutionSequenceDataset):
     _name_ = "pathfinder"
     d_input = 1
@@ -482,6 +486,15 @@ class PathFinder(ImageResolutionSequenceDataset):
                 default_data_path / self._name_ / f"pathfinder{self.resolution}"
             )
 
+        if self.cache_dir is not None:
+            if Path(self.cache_dir / self._cache_dir_name).exists():
+                with open(self.cache_dir / (self._cache_dir_name + '.pt'), 'rb') as f:
+                    dset = torch.load(f)
+                self.dataset_train = dset['train']
+                self.dataset_val = dset['val']
+                self.dataset_test = dset['test']
+            return None
+
         if stage == "test" and hasattr(self, "dataset_test"):
             return
         # [2021-08-18] TD: I ran into RuntimeError: Too many open files.
@@ -501,6 +514,39 @@ class PathFinder(ImageResolutionSequenceDataset):
             [train_len, val_len, test_len],
             generator=torch.Generator().manual_seed(self.seed),
         )
+
+        # AW - Now we need to iterate over each of these datasets and store them in a proper cache.
+        def _compile_convert(dset, tag):
+            """
+
+            :param dset:
+            :param tag:
+            :return:
+            """
+            loader = torch.utils.data.DataLoader(dataset=dset, batch_size=len(dset), shuffle=False, drop_last=False)
+            inp, out = next(iter(loader))
+            dset_compiled = torch.utils.data.TensorDataset(inp, out)
+            return dset_compiled
+
+        os.makedirs(self.cache_dir, exist_ok=True)
+        self.dataset_train = _compile_convert(self.dataset_train, tag='train')
+        self.dataset_val = _compile_convert(self.dataset_val, tag='val')
+        self.dataset_test = _compile_convert(self.dataset_test, tag='test')
+
+        # Cache.
+        cache_path = self.cache_dir / (self._cache_dir_name + '.pt')
+        logger = logging.getLogger(__name__)
+        logger.info(f"Saving to cache at {str(cache_path)}")
+        with open(cache_path, 'wb') as f:
+            torch.save({'train': self.dataset_train,
+                        'val': self.dataset_val,
+                        'test': self.dataset_test},
+                       f)
+
+    @property
+    def _cache_dir_name(self):
+        return f"pathfinder-resolution-{self.resolution}"
+
 
 class AAN(SequenceDataset):
     _name_ = "aan"
