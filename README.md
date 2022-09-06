@@ -1,6 +1,6 @@
 # S5: Simplified State Space Layers for Sequence Modeling
 
-##Overview
+## Overview
 This repository provides the official implementation and experiments for the 
 paper: Simplified State Space Layers for Sequence Modeling.  The preprint is available [here](https://arxiv.org/abs/2208.04933). 
 The core contribution is the S5 layer which is meant to simplify the prior
@@ -9,7 +9,7 @@ S4 approach [paper](https://arxiv.org/abs/2111.00396) while retaining its perfor
 While it has departed a fair amount, this repository originally started off with much of the JAX implementation of S4 from the
 Annotated S4 blog post by Sasha Rush (available [here](https://github.com/srush/annotated-s4)). 
 
-##Work in progress 09/06/2022:
+## Work in progress 09/06/2022:
 This repository is in active development. A more complete release will be made available by the end of September 2022.
 
 
