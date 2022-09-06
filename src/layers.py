@@ -32,7 +32,7 @@ class SequenceLayer(nn.Module):
 
         if self.batchnorm:
             self.norm = nn.BatchNorm(use_running_average=not self.training,
-                                     momentum=self.bn_momentum)
+                                     momentum=self.bn_momentum, axis_name='batch')
         else:
             self.norm = nn.LayerNorm()
 
