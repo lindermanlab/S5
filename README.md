@@ -1,5 +1,8 @@
 # S5: Simplified State Space Layers for Sequence Modeling
 
+## Important Note:
+This repository is in the process of getting updated to match the results in the most recent paper revision.  Stay tuned!! 
+
 ## Overview
 This repository provides the official implementation and experiments for the 
 paper: Simplified State Space Layers for Sequence Modeling.  The preprint is available [here](https://arxiv.org/abs/2208.04933). 
