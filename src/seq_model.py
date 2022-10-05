@@ -179,9 +179,9 @@ BatchClassificationModel = nn.vmap(
     ClassificationModel,
     in_axes=0,
     out_axes=0,
-    variable_axes={"params": None, "dropout": None, 'batch_stats': 0, "cache": 0, "prime": None},
-    split_rngs={"params": False, "dropout": True},
-)
+    variable_axes={"params": None, "dropout": None, 'batch_stats': None, "cache": 0, "prime": None},
+    split_rngs={"params": False, "dropout": True}, axis_name='batch')
+
 
 
 # For Document matching task (e.g. AAN)
@@ -263,8 +263,8 @@ class RetrievalModel(nn.Module):
             StackedEncoderModel,
             in_axes=0,
             out_axes=0,
-            variable_axes={"params": None, "dropout": None, 'batch_stats': 0, "cache": 0, "prime": None},
-            split_rngs={"params": False, "dropout": True},
+            variable_axes={"params": None, "dropout": None, 'batch_stats': None, "cache": 0, "prime": None},
+            split_rngs={"params": False, "dropout": True}, axis_name='batch'
         )
         self.encoder = BatchEncoderModel(
                             ssm=self.ssm,
