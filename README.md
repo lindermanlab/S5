@@ -13,10 +13,6 @@ The S5 layer builds on the prior S4 work ([paper](https://arxiv.org/abs/2111.003
 Annotated S4 blog by Rush and Karamcheti (available [here](https://github.com/srush/annotated-s4)).
 
 
-## Important Notes:
-- This branch of the repository accompanies our ICLR 2023 submission.  This code should however be considered as dev code, as we continue to refine the code to make it more useable.  
-
-
 ## Requirements & Installation
 To run the code on your own machine, run either `pip install -r requirements_cpu.txt` or `pip install -r requirements_gpu.txt`.  The GPU installation of JAX can be tricky, and so we include requirements that should work for most people, although further instructions are available [here](https://github.com/google/jax#installation).
 
@@ -74,8 +70,10 @@ wandb/              Local WandB log files.
 ## Experiments
 
 The configurations to run the LRA and 35-way Speech Commands experiments from the paper are located in  `bin/run_experiments`. For example,
-to run the LRA text (character level IMDB) experiment, run `./bin/run_experiments/run_lra_imdb.sh`. Note: the pendulum
-regression data and experiments will be added soon.
+to run the LRA text (character level IMDB) experiment, run `./bin/run_experiments/run_lra_imdb.sh`. 
+To log with W&B, adjust the default `USE_WANDB, wandb_entity, wandb_project` arguments. 
+Note: the pendulum
+regression dataloading and experiments will be added soon.
 
 ## Citation
 Please use the following when citing our work:
