@@ -1,0 +1,9 @@
+flax==0.5.2
+torch==1.11.0
+torchtext==0.12.0
+tensorflow-datasets==4.5.2
+pydub==0.25.1
+datasets==2.4.0
+tqdm==4.62.3
+jaxlib==0.3.5
+jax==0.3.5

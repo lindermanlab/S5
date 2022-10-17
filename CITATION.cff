@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: “Smith”
+  given-names: “Jimmy T. H.“
+- family-names: “Warrington”
+  given-names: “Andrew”
+- family-names: “Linderman”
+  given-names: “Scott”
+title: "Simplified State Space Layers for Sequence Modeling"
+version: 0.0.1
+doi: arXiv:2208.04933
+url: "https://github.com/lindermanlab/S5"
+date-released: 2022-OCT-04
