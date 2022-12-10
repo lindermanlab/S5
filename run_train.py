@@ -52,6 +52,8 @@ if __name__ == "__main__":
 						help="min value to sample initial timescale params from")
 	parser.add_argument("--dt_max", type=float, default=0.1,
 						help="max value to sample initial timescale params from")
+	parser.add_argument("--liquid", type=str2bool, default=False,
+						help="whether to use liquid s5 approach")
 
 	# Optimization Parameters
 	parser.add_argument("--prenorm", type=str2bool, default=True,

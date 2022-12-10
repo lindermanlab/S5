@@ -57,7 +57,7 @@ def binary_operator(q_i, q_j):
     return A_j * A_i, A_j * b_i + b_j
 
 
-def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectional):
+def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectional, liquid):
     """ Compute the LxH output of discretized SSM given an LxH input.
         Args:
             Lambda_bar (complex64): discretized diagonal state matrix    (P,)
@@ -67,12 +67,15 @@ def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectiona
             conj_sym (bool):         whether conjugate symmetry is enforced
             bidirectional (bool):    whether bidirectional setup is used,
                                   Note for this case C_tilde will have 2P cols
+            liquid (bool): use "liquid S5" approach with input dependent state matrix
         Returns:
             ys (float32): the SSM outputs (S5 layer preactivations)      (L, H)
     """
     Lambda_elements = Lambda_bar * np.ones((input_sequence.shape[0],
                                             Lambda_bar.shape[0]))
     Bu_elements = jax.vmap(lambda u: B_bar @ u)(input_sequence)
+    if liquid:
+        Lambda_elements += Bu_elements
 
     _, xs = jax.lax.associative_scan(binary_operator, (Lambda_elements, Bu_elements))
 
@@ -104,6 +107,7 @@ class S5SSM(nn.Module):
     clip_eigs: bool = False
     bidirectional: bool = False
     step_rescale: float = 1.0
+    liquid: bool = False
 
     """ The S5 SSM
         Args:
@@ -134,6 +138,7 @@ class S5SSM(nn.Module):
                                     initializing log_step
             step_rescale:  (float32): allows for uniformly changing the timescale parameter, e.g. after training 
                                     on a different resolution for the speech commands benchmark
+            liquid:      (bool):   whether to use "liquid S5" approach of an input dependent state matrix
     """
 
     def setup(self):
@@ -240,7 +245,8 @@ class S5SSM(nn.Module):
                        self.C_tilde,
                        input_sequence,
                        self.conj_sym,
-                       self.bidirectional)
+                       self.bidirectional,
+                       self.liquid)
 
         # Add feedthrough matrix output Du;
         Du = jax.vmap(lambda u: self.D * u)(input_sequence)
@@ -259,7 +265,8 @@ def init_S5SSM(H,
                dt_max,
                conj_sym,
                clip_eigs,
-               bidirectional
+               bidirectional,
+               liquid
                ):
     """Convenience function that will be used to initialize the SSM.
        Same arguments as defined in S5SSM above."""
@@ -276,4 +283,5 @@ def init_S5SSM(H,
                    dt_max=dt_max,
                    conj_sym=conj_sym,
                    clip_eigs=clip_eigs,
-                   bidirectional=bidirectional)
+                   bidirectional=bidirectional,
+                   liquid=liquid)
