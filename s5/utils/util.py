@@ -1,5 +1,21 @@
-from typing import Sequence
 import argparse
+from typing import Sequence
+from flax import linen as nn
+
+
+class SimpleMLP(nn.Module):
+	features: Sequence[int]
+
+	@nn.compact
+	def __call__(self, inputs):
+		x = inputs
+		for i, feat in enumerate(self.features):
+			x = nn.Dense(feat, name=f'layers_{i}')(x)
+			if i != len(self.features) - 1:
+				x = nn.tanh(x)
+			# providing a name is optional though!
+			# the default autonames would be "Dense_0", "Dense_1", ...
+		return x
 
 
 def is_list(x):

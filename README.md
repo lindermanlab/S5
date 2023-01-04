@@ -1,3 +1,7 @@
+# IMPORTANT NOTICE: 
+This code branch is under active development and should not to be used.  
+
+
 # S5: Simplified State Space Layers for Sequence Modeling
 
 This repository provides the implementation for the

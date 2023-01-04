@@ -2,6 +2,7 @@ import torch
 from pathlib import Path
 import os
 from typing import Callable, Optional, TypeVar, Dict, Tuple, List, Union
+from types import SimpleNamespace
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -387,6 +388,54 @@ def create_pmnist_classification_dataset(cache_dir: Union[str, Path] = DEFAULT_C
 	return trn_loader, val_loader, tst_loader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
 
 
+def create_image_pendulum_regression_dataset(cache_dir: Union[str, Path] = DEFAULT_CACHE_DIR_ROOT,
+											 bsz: int = 50,
+											 seed: int = 42, ) -> ReturnType:
+	print(f"[*] Generating CRU Pendulum image regression dataset.")
+	from s5.cru.make_pendulum import load_pendulum_regression_data
+
+	# Define some arguments to pass through to the CRU pendulum dataset generation function.
+	args = SimpleNamespace(**{'dataset': 'pendulum',
+							  'task': 'regression',
+							  'sample_rate': 0.5,
+							  'data_random_seed': 0,  # This is for shuffling.  Must be 0 to match CRU.
+							  'cache_dir': cache_dir,
+							  })
+	train, test, valid = load_pendulum_regression_data(args, )
+
+	def _collate_fn(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor, Dict]:
+		"""
+		Batch is [n_batch, ] x [obs, targets, timepoints, valid obs].
+
+		For regression, the observations are always valid.
+
+		:param batch:
+		:return: 				(tensor, tensor, dict):  Inputs, targets, dict of timesteps and obs mask as required (mirroring Gu).
+		"""
+		inputs = torch.stack([_b[0].flatten(start_dim=1) for _b in batch])  # NOTE -- We are flattening the image observations here!
+		target = torch.stack([_b[1] for _b in batch])
+		timesteps = torch.stack([_b[2] for _b in batch])
+		aux_data = {
+			'timesteps': timesteps,
+		}
+		return inputs, target, aux_data
+
+	trainloader = make_data_loader(train, None, seed=seed, batch_size=bsz, collate_fn=_collate_fn)
+
+	# Match the batch size from the cru paper.
+	testloader = make_data_loader(test, None, seed=seed, batch_size=50, drop_last=False, shuffle=False, collate_fn=_collate_fn)
+	valloader = make_data_loader(valid, None, seed=seed, batch_size=50, drop_last=False, shuffle=False, collate_fn=_collate_fn)
+	aux_loaders = {}
+
+	TRAIN_SIZE, SEQ_LENGTH, N_CLASSES = train.targets.shape
+	OBS_SHAPE = (1, 24, 24)  # NOTE - hard code this for now.
+	IN_DIM = torch.prod(torch.tensor(train.obs.shape[2:])).item()
+
+	assert train.obs.shape[2:] == OBS_SHAPE, "Not set up to handle other shapes."
+
+	return trainloader, valloader, testloader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
+
+
 Datasets = {
 	# Other loaders.
 	"mnist-classification": create_mnist_classification_dataset,
@@ -403,4 +452,7 @@ Datasets = {
 
 	# Speech.
 	"speech35-classification": create_speechcommands35_classification_dataset,
+
+	# Pendulum.
+	"cru-image-pendulum-regression": create_image_pendulum_regression_dataset,
 }
