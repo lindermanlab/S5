@@ -98,4 +98,13 @@ if __name__ == "__main__":
 	parser.add_argument("--jax_seed", type=int, default=1919,
 						help="seed randomness")
 
+	# CRU / Pendulum specific arguments
+	parser.add_argument("--use_integration_timestep", type=str2bool, default=True,
+						help="Use the integration timestep (False => S5-ignore).")
+	parser.add_argument("--append_integration_timestep", type=str2bool, default=False,
+						help="Append the integration timestep (True => S5-append).")
+
+	# Functionless-tag for filtering on WandB.
+	parser.add_argument("--method", type=str, default='S5', help="No-function.  Switch for WandB.")
+
 	train(parser.parse_args())

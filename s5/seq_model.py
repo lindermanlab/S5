@@ -2,6 +2,8 @@ import jax
 import jax.numpy as np
 from flax import linen as nn
 from .layers import SequenceLayer
+from .utils.util import SimpleMLP
+from typing import Callable
 
 
 class StackedEncoderModel(nn.Module):
@@ -32,11 +34,17 @@ class StackedEncoderModel(nn.Module):
     bn_momentum: float = 0.9
     step_rescale: float = 1.0
 
+    append_integration_timestep: bool = False
+    use_integration_timestep: bool = True
+    encoder_fn: Callable = nn.Dense
+
     def setup(self):
         """
         Initializes a linear encoder and the stack of S5 layers.
         """
-        self.encoder = nn.Dense(self.d_model)
+
+        self.encoder = self.encoder_fn(self.d_model)
+
         self.layers = [
             SequenceLayer(
                 ssm=self.ssm,
@@ -61,9 +69,22 @@ class StackedEncoderModel(nn.Module):
         Returns:
             output sequence (float32): (L, d_model)
         """
-        x = self.encoder(x)
+
+        if integration_timesteps is None:
+            x = self.encoder(x)
+        else:
+            x = self.encoder(x, integration_timesteps)
+
+            # TODO -- need to handle the variable integration timesteps here.
+
+            # There are three ways that we handle the integration timestep.
+            if (not self.use_integration_timestep) or self.append_integration_timestep:
+                # If we aren't using the integration timesteps, then make them equal one.
+                integration_timesteps = 1.0 + (integration_timesteps * 0.0)
+                print('\n\nWarning:  discarding/appending integration timesteps. \n\n')
+
         for layer in self.layers:
-            x = layer(x)
+            x = layer(x, integration_timesteps)
         return x
 
 
@@ -182,6 +203,80 @@ BatchClassificationModel = nn.vmap(
     out_axes=0,
     variable_axes={"params": None, "dropout": None, 'batch_stats': None, "cache": 0, "prime": None},
     split_rngs={"params": False, "dropout": True}, axis_name='batch')
+
+
+class GaussianRegressionModel(nn.Module):
+    """
+    """
+    ssm: nn.Module
+    d_output: int
+    d_model: int
+    n_layers: int
+    padded: bool
+    activation: str = "gelu"
+    dropout: float = 0.2
+    training: bool = True
+    mode: str = "pool"
+    prenorm: bool = False
+    batchnorm: bool = False
+    bn_momentum: float = 0.9
+    step_rescale: float = 1.0
+
+    append_integration_timestep: bool = False
+    use_integration_timestep: bool = True
+    encoder_fn: Callable = nn.Dense
+
+    decoder_dim: int = 30  # CRU used a decoder dim of 30.
+
+    def setup(self):
+        """
+        Initializes the S5 stacked encoder and a linear decoder.
+        """
+        self.encoder = StackedEncoderModel(
+            ssm=self.ssm,
+            d_model=self.d_model,
+            n_layers=self.n_layers,
+            activation=self.activation,
+            dropout=self.dropout,
+            training=self.training,
+            prenorm=self.prenorm,
+            batchnorm=self.batchnorm,
+            bn_momentum=self.bn_momentum,
+            step_rescale=self.step_rescale,
+            append_integration_timestep=self.append_integration_timestep,
+            use_integration_timestep=self.use_integration_timestep,
+            encoder_fn=self.encoder_fn
+        )
+
+        # Need two outputs (mean, log-var).
+        self.decoder_mu = SimpleMLP([self.decoder_dim, self.d_output])
+        self.decoder_lvar = SimpleMLP([self.decoder_dim, self.d_output])
+
+    def __call__(self, x, integration_timesteps):
+        """
+        Args:
+             x (float32): input sequence (L, d_input)
+        Returns:
+            output (float32): (d_output, d_output)  Mean and variance.
+        """
+        x = self.encoder(x, integration_timesteps)
+        mu = self.decoder_mu(x)
+        lvar = self.decoder_lvar(x)
+
+        # CRU uses a funny activtion function.
+        lvar_rectified = np.exp(lvar)
+        var = np.where(lvar < 0.0, lvar_rectified, lvar + 1.0)
+        return mu, var
+
+
+# Here we call vmap to parallelize across a batch of input sequences
+BatchGaussianRegressionModel = nn.vmap(
+    GaussianRegressionModel,
+    in_axes=(0, 0),
+    out_axes=0,
+    variable_axes={"params": None, "dropout": None, 'batch_stats': None, "cache": 0, "prime": None},
+    split_rngs={"params": False, "dropout": True}, axis_name='batch'
+)
 
 
 # For Document matching task (e.g. AAN)

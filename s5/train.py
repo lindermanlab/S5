@@ -7,7 +7,7 @@ import wandb
 from .train_helpers import create_train_state, reduce_lr_on_plateau,\
     linear_warmup, cosine_annealing, constant_lr, train_epoch, validate
 from .dataloading import Datasets
-from .seq_model import BatchClassificationModel, RetrievalModel
+from .seq_model import BatchClassificationModel, RetrievalModel, BatchGaussianRegressionModel
 from .ssm import init_S5SSM
 from .ssm_init import make_DPLR_HiPPO
 
@@ -44,6 +44,12 @@ def train(args):
     # Get dataset creation function
     create_dataset_fn = Datasets[args.dataset]
 
+    # Define some flags for data.
+    padded = False
+    retrieval = False
+    speech = False
+    cru = False
+    variable_observation_interval = False
     # Dataset dependent logic
     if args.dataset in ["imdb-classification", "listops-classification", "aan-classification"]:
         padded = True
@@ -51,19 +57,25 @@ def train(args):
             # Use retreival model for document matching
             retrieval = True
             print("Using retrieval model for document matching")
-        else:
-            retrieval = False
-
-    else:
-        padded = False
-        retrieval = False
 
     # For speech dataset
     if args.dataset in ["speech35-classification"]:
         speech = True
         print("Will evaluate on both resolutions for speech task")
-    else:
-        speech = False
+
+    # For CRU/Pendulum data.
+    if args.dataset == "cru-image-pendulum-regression":
+        cru = True
+
+        # If weare using the integration timestep, then set the flag indicating so.
+        if args.use_integration_timestep:
+            variable_observation_interval = True
+
+        # If we are appending the integration timestep, then the model isn't
+        # actually a variable integration timestep model (the timestep is
+        # part of the "observation") and so disable this.
+        if args.append_integration_timestep:
+            variable_observation_interval = False
 
     # Create dataset...
     init_rng, key = random.split(init_rng, num=2)
@@ -103,6 +115,7 @@ def train(args):
                              discretization=args.discretization,
                              dt_min=args.dt_min,
                              dt_max=args.dt_max,
+                             variable_observation_interval=variable_observation_interval,
                              conj_sym=args.conj_sym,
                              clip_eigs=args.clip_eigs,
                              bidirectional=args.bidirectional)
@@ -122,6 +135,26 @@ def train(args):
             prenorm=args.prenorm,
             batchnorm=args.batchnorm,
             bn_momentum=args.bn_momentum,
+        )
+
+    elif cru:
+        print("using crn regression model")
+        from s5.cru.util import CRN_CNN
+        model_cls = partial(
+            BatchGaussianRegressionModel,
+            ssm=ssm_init_fn,
+            d_output=n_classes,
+            d_model=args.d_model,
+            n_layers=args.n_layers,
+            padded=padded,
+            activation=args.activation_fn,
+            dropout=args.p_dropout,
+            prenorm=args.prenorm,
+            batchnorm=args.batchnorm,
+            bn_momentum=args.bn_momentum,
+            append_integration_timestep=args.append_integration_timestep,
+            use_integration_timestep=args.use_integration_timestep,
+            encoder_fn=lambda d: CRN_CNN(d, input_shape=24, append_timestep=args.append_integration_timestep)
         )
 
     else:
@@ -191,7 +224,8 @@ def train(args):
                                               seq_len,
                                               in_dim,
                                               args.batchnorm,
-                                              lr_params)
+                                              lr_params,
+                                              cru=cru)
 
         if valloader is not None:
             print(f"[*] Running Epoch {epoch + 1} Validation...")
@@ -200,7 +234,8 @@ def train(args):
                                          valloader,
                                          seq_len,
                                          in_dim,
-                                         args.batchnorm)
+                                         args.batchnorm,
+                                         cru=cru)
 
             print(f"[*] Running Epoch {epoch + 1} Test...")
             test_loss, test_acc = validate(state,
@@ -208,7 +243,8 @@ def train(args):
                                            testloader,
                                            seq_len,
                                            in_dim,
-                                           args.batchnorm)
+                                           args.batchnorm,
+                                           cru=cru)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
@@ -225,7 +261,8 @@ def train(args):
                                          testloader,
                                          seq_len,
                                          in_dim,
-                                         args.batchnorm)
+                                         args.batchnorm,
+                                         cru=cru)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(

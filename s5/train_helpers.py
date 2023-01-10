@@ -7,6 +7,8 @@ from flax.training import train_state
 import optax
 from typing import Any, Tuple
 
+# Import any additional losses we might need for different applications.
+from s5.cru.losses import mse, GaussianNegLogLik
 
 # LR schedulers
 def linear_warmup(step, base_lr, end_step, lr_min=None):
@@ -117,13 +119,13 @@ def create_train_state(model_cls,
         if retrieval:
             # For retrieval tasks we have two different sets of "documents"
             dummy_input = (np.ones((2*bsz, seq_len, in_dim)), np.ones(2*bsz))
-            integration_timesteps = np.ones((2*bsz, seq_len,))
+            integration_timesteps = np.ones((2*bsz, seq_len - 1,))
         else:
             dummy_input = (np.ones((bsz, seq_len, in_dim)), np.ones(bsz))
-            integration_timesteps = np.ones((bsz, seq_len,))
+            integration_timesteps = np.ones((bsz, seq_len - 1,))
     else:
         dummy_input = np.ones((bsz, seq_len, in_dim))
-        integration_timesteps = np.ones((bsz, seq_len, ))
+        integration_timesteps = np.ones((bsz, seq_len - 1, ))
 
     model = model_cls(training=True)
     init_rng, dropout_rng = jax.random.split(rng, num=2)
@@ -329,7 +331,7 @@ def prep_batch(batch: tuple,
     return full_inputs, targets.astype(float), integration_timesteps
 
 
-def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_params):
+def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_params, cru=False):
     """
     Training function for an epoch that loops over batches.
     """
@@ -350,6 +352,7 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
             integration_times,
             model,
             batchnorm,
+            cru=cru
         )
         batch_losses.append(loss)
         lr_params = (decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min)
@@ -359,13 +362,13 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
     return state, np.mean(np.array(batch_losses)), step
 
 
-def validate(state, model, testloader, seq_len, in_dim, batchnorm, step_rescale=1.0):
+def validate(state, model, testloader, seq_len, in_dim, batchnorm, step_rescale=1.0, cru=False):
     """Validation function that loops over batches"""
     model = model(training=False, step_rescale=step_rescale)
     losses, accuracies, preds = np.array([]), np.array([]), np.array([])
     for batch_idx, batch in enumerate(tqdm(testloader)):
         inputs, labels, integration_timesteps = prep_batch(batch, seq_len, in_dim)
-        loss, acc, pred = eval_step(inputs, labels, integration_timesteps, state, model, batchnorm)
+        loss, acc, pred = eval_step(inputs, labels, integration_timesteps, state, model, batchnorm, cru=cru)
         losses = np.append(losses, loss)
         accuracies = np.append(accuracies, acc)
 
@@ -373,7 +376,7 @@ def validate(state, model, testloader, seq_len, in_dim, batchnorm, step_rescale=
     return aveloss, aveaccu
 
 
-@partial(jax.jit, static_argnums=(5, 6))
+@partial(jax.jit, static_argnums=(5, 6, 7))
 def train_step(state,
                rng,
                batch_inputs,
@@ -381,28 +384,32 @@ def train_step(state,
                batch_integration_timesteps,
                model,
                batchnorm,
+               cru=False
                ):
     """Performs a single training step given a batch of data"""
     def loss_fn(params):
 
         if batchnorm:
-            logits, mod_vars = model.apply(
+            preds, mod_vars = model.apply(
                 {"params": params, "batch_stats": state.batch_stats},
                 batch_inputs, batch_integration_timesteps,
                 rngs={"dropout": rng},
                 mutable=["intermediates", "batch_stats"],
             )
         else:
-            logits, mod_vars = model.apply(
+            preds, mod_vars = model.apply(
                 {"params": params},
                 batch_inputs, batch_integration_timesteps,
                 rngs={"dropout": rng},
                 mutable=["intermediates"],
             )
 
-        loss = np.mean(cross_entropy_loss(logits, batch_labels))
+        if cru:
+            loss = GaussianNegLogLik(batch_labels, *preds, )
+        else:
+            loss = np.mean(cross_entropy_loss(preds, batch_labels))
 
-        return loss, (mod_vars, logits)
+        return loss, (mod_vars, preds)
 
     (loss, (mod_vars, logits)), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
 
@@ -413,24 +420,29 @@ def train_step(state,
     return state, loss
 
 
-@partial(jax.jit, static_argnums=(4, 5))
+@partial(jax.jit, static_argnums=(4, 5, 6))
 def eval_step(batch_inputs,
               batch_labels,
               batch_integration_timesteps,
               state,
               model,
               batchnorm,
+              cru=False,
               ):
     if batchnorm:
-        logits = model.apply({"params": state.params, "batch_stats": state.batch_stats},
+        preds = model.apply({"params": state.params, "batch_stats": state.batch_stats},
                              batch_inputs, batch_integration_timesteps,
                              )
     else:
-        logits = model.apply({"params": state.params},
+        preds = model.apply({"params": state.params},
                              batch_inputs, batch_integration_timesteps,
                              )
 
-    losses = cross_entropy_loss(logits, batch_labels)
-    accs = compute_accuracy(logits, batch_labels)
+    if cru:
+        losses = GaussianNegLogLik(batch_labels, *preds, )
+        accs = - mse(batch_labels, preds[0])  # Use the mean to compute the negative accuracy (higher is better).
+    else:
+        losses = cross_entropy_loss(preds, batch_labels)
+        accs = compute_accuracy(preds, batch_labels)
 
-    return losses, accs, logits
+    return losses, accs, preds

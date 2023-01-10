@@ -52,7 +52,7 @@ class SequenceLayer(nn.Module):
             deterministic=not self.training,
         )
 
-    def __call__(self, x):
+    def __call__(self, x, integration_timesteps):
         """
         Compute the LxH output of S5 layer given an LxH input.
         Args:
@@ -63,7 +63,7 @@ class SequenceLayer(nn.Module):
         skip = x
         if self.prenorm:
             x = self.norm(x)
-        x = self.seq(x)
+        x = self.seq(x, integration_timesteps)
 
         if self.activation in ["full_glu"]:
             x = self.drop(nn.gelu(x))

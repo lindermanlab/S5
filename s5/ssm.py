@@ -57,8 +57,15 @@ def binary_operator(q_i, q_j):
     return A_j * A_i, A_j * b_i + b_j
 
 
-def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectional):
+def apply_ssm(Lambda_elements, Bu_elements, C_tilde, conj_sym, bidirectional, Lambda_elements_bwd=None, Bu_elements_bwd=None):
     """ Compute the LxH output of discretized SSM given an LxH input.
+
+        CHANGELOG:  04-JAN-2023:  Bringing this function in to complians with
+        variable interval applications.  Instead, the Lambda and B elements
+        must be pre-computed for both the forward pass and any backwards pass.
+        Failure to provide the (exactly) correct arguments will throw an
+        error.
+
         Args:
             Lambda_bar (complex64): discretized diagonal state matrix    (P,)
             B_bar      (complex64): discretized input matrix             (P, H)
@@ -70,17 +77,15 @@ def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectiona
         Returns:
             ys (float32): the SSM outputs (S5 layer preactivations)      (L, H)
     """
-    Lambda_elements = Lambda_bar * np.ones((input_sequence.shape[0],
-                                            Lambda_bar.shape[0]))
-    Bu_elements = jax.vmap(lambda u: B_bar @ u)(input_sequence)
 
     _, xs = jax.lax.associative_scan(binary_operator, (Lambda_elements, Bu_elements))
 
     if bidirectional:
-        _, xs2 = jax.lax.associative_scan(binary_operator,
-                                          (Lambda_elements, Bu_elements),
-                                          reverse=True)
+        assert (Lambda_elements_bwd is not None) and (Bu_elements_bwd is not None), "Must provide bwd kernels."
+        _, xs2 = jax.lax.associative_scan(binary_operator, (Lambda_elements_bwd, Bu_elements_bwd), reverse=True)
         xs = np.concatenate((xs, xs2), axis=-1)
+    else:
+        assert (Lambda_elements_bwd is None) and (Bu_elements_bwd is None), "Cannot provide bwd kernels."
 
     if conj_sym:
         return jax.vmap(lambda x: 2*(C_tilde @ x).real)(xs)
@@ -100,6 +105,7 @@ class S5SSM(nn.Module):
     discretization: str
     dt_min: float
     dt_max: float
+    variable_observation_interval: bool
     conj_sym: bool = True
     clip_eigs: bool = False
     bidirectional: bool = False
@@ -220,13 +226,20 @@ class S5SSM(nn.Module):
 
         # Discretize
         if self.discretization in ["zoh"]:
-            self.Lambda_bar, self.B_bar = discretize_zoh(self.Lambda, B_tilde, step)
+            self.discretize_fn = discretize_zoh
         elif self.discretization in ["bilinear"]:
-            self.Lambda_bar, self.B_bar = discretize_bilinear(self.Lambda, B_tilde, step)
+            self.discretize_fn = discretize_bilinear
         else:
             raise NotImplementedError("Discretization method {} not implemented".format(self.discretization))
 
-    def __call__(self, input_sequence):
+        if not self.variable_observation_interval:
+            # Apply the discretize ahead of time.
+            self.Lambda_bar, self.B_bar = self.discretize_fn(self.Lambda, B_tilde, step)
+        else:
+            # If we have variable observation interval, then we will need to discretize on-the-fly.
+            self.Lambda_bar, self.B_bar = None, None
+
+    def __call__(self, input_sequence, integration_timesteps=None):
         """
         Compute the LxH output of the S5 SSM given an LxH input sequence
         using a parallel scan.
@@ -235,12 +248,52 @@ class S5SSM(nn.Module):
         Returns:
             output sequence (float32): (L, H)
         """
-        ys = apply_ssm(self.Lambda_bar,
-                       self.B_bar,
+        # These will be over-written in the case that we have a bi-directional model.
+        Lambda_bar_elements_bwd = None
+        Bu_bar_elements_bwd = None
+
+        # If we have variable observation intervals, then we need to compute the variables on the fly.
+        if not self.variable_observation_interval:
+            # Fixed interval observations (or the interval is being dealt with elsewhere).
+            assert (self.Lambda_bar is not None) and (self.B_bar is not None), "Must be pre-computed."
+            Lambda_bar_elements = self.Lambda_bar * np.ones((input_sequence.shape[0],
+                                                             self.Lambda_bar.shape[0]))
+            Bu_bar_elements = jax.vmap(lambda u: self.B_bar @ u)(input_sequence)
+
+            # For fixed-interval observations, the reverse terms are the same as the forward terms.
+            if self.bidirectional:
+                Lambda_bar_elements_bwd = Lambda_bar_elements
+                Bu_bar_elements_bwd = Bu_bar_elements
+
+        else:
+            assert (self.Lambda_bar is None) and (self.B_bar is None), "Cannot pre-compute these.  How are these not `None`..."
+
+            # TODO - Testing this implementation.  Including this entire function, in fact...
+            @jax.vmap
+            def _do_vmapped_discretize(_timestep):
+                print('\nWarning: Discretizing on-the-fly...\n')
+                B_tilde = self.B[..., 0] + 1j * self.B[..., 1]
+                step = self.step_rescale * np.exp(self.log_step[:, 0])
+                Lambda_bar, B_bar = self.discretize_fn(self.Lambda, B_tilde, step * _timestep)
+                return Lambda_bar, B_bar
+
+            # Discretize forward pass.
+            fwd_timesteps = np.expand_dims(np.concatenate((np.asarray((1,)), integration_timesteps)), -1)
+            Lambda_bar_elements, B_bar_elements = _do_vmapped_discretize(fwd_timesteps)
+            Bu_bar_elements = jax.vmap(lambda u, b: b @ u)(input_sequence, B_bar_elements)
+
+            if self.bidirectional:
+                bwd_timesteps = np.expand_dims(np.concatenate((integration_timesteps, np.asarray((1,)))), -1)
+                Lambda_bar_elements_bwd, B_bar_elements_bwd = _do_vmapped_discretize(bwd_timesteps)
+                Bu_bar_elements_bwd = jax.vmap(lambda u, b: b @ u)(input_sequence, B_bar_elements_bwd)
+
+        ys = apply_ssm(Lambda_bar_elements,
+                       Bu_bar_elements,
                        self.C_tilde,
-                       input_sequence,
                        self.conj_sym,
-                       self.bidirectional)
+                       self.bidirectional,
+                       Lambda_elements_bwd=Lambda_bar_elements_bwd,
+                       Bu_elements_bwd=Bu_bar_elements_bwd, )
 
         # Add feedthrough matrix output Du;
         Du = jax.vmap(lambda u: self.D * u)(input_sequence)
@@ -257,9 +310,10 @@ def init_S5SSM(H,
                discretization,
                dt_min,
                dt_max,
+               variable_observation_interval,
                conj_sym,
                clip_eigs,
-               bidirectional
+               bidirectional,
                ):
     """Convenience function that will be used to initialize the SSM.
        Same arguments as defined in S5SSM above."""
@@ -274,6 +328,7 @@ def init_S5SSM(H,
                    discretization=discretization,
                    dt_min=dt_min,
                    dt_max=dt_max,
+                   variable_observation_interval=variable_observation_interval,
                    conj_sym=conj_sym,
                    clip_eigs=clip_eigs,
                    bidirectional=bidirectional)
