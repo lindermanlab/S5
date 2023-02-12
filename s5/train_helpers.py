@@ -362,7 +362,7 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
         state, step = update_learning_rate_per_step(lr_params, state)
 
     # Return average loss over batches
-    return state, np.mean(np.array(batch_losses)), step, jnp.sum(times)
+    return state, np.mean(np.array(batch_losses)), step, np.sum(times)
 
 
 def validate(state, model, testloader, seq_len, in_dim, batchnorm, step_rescale=1.0, cru=False):
