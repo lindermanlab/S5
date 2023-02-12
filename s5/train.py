@@ -228,7 +228,7 @@ def train(args):
                                                                    args.batchnorm,
                                                                    lr_params,
                                                                    cru=cru)
-        _ = state.block_until_ready()
+        _ = train_loss.block_until_ready()
         outer_train_step_time = dt() - st
 
         if valloader is not None:
