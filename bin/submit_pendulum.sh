@@ -1,5 +1,5 @@
 
-WANDB_PROJ='pendulum-public-1'
+WANDB_PROJ='pendulum-public-2'
 
 for SEED in `seq 0 19`
 do
