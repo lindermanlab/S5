@@ -338,13 +338,14 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
     """
     # Store Metrics
     model = model(training=True)
-    batch_losses = []
+    batch_losses, times = [], []
 
     decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min = lr_params
 
     for batch_idx, batch in enumerate(tqdm(trainloader)):
         inputs, labels, integration_times = prep_batch(batch, seq_len, in_dim)
         rng, drop_rng = jax.random.split(rng)
+        st = dt()
         state, loss = train_step(
             state,
             drop_rng,
@@ -355,12 +356,13 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
             batchnorm,
             cru=cru
         )
+        times.append(dt() - st)
         batch_losses.append(loss)
         lr_params = (decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min)
         state, step = update_learning_rate_per_step(lr_params, state)
 
     # Return average loss over batches
-    return state, np.mean(np.array(batch_losses)), step
+    return state, np.mean(np.array(batch_losses)), step, np.sum(np.asarray(times))
 
 
 def validate(state, model, testloader, seq_len, in_dim, batchnorm, step_rescale=1.0, cru=False):
@@ -371,7 +373,9 @@ def validate(state, model, testloader, seq_len, in_dim, batchnorm, step_rescale=
         inputs, labels, integration_timesteps = prep_batch(batch, seq_len, in_dim)
         st = dt()
         loss, acc, pred = eval_step(inputs, labels, integration_timesteps, state, model, batchnorm, cru=cru)
-        _ = loss.block_until_ready()  # Make it wait before proceeding.
+        # print(dt() - st, loss)
+        blocked = loss.block_until_ready()  # Make it wait before proceeding.
+        # print(dt() - st, blocked)
         times = np.append(times, dt() - st)
 
         losses = np.append(losses, loss)
