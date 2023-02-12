@@ -267,6 +267,7 @@ class S5SSM(nn.Module):
 
         else:
             assert (self.Lambda_bar is None) and (self.B_bar is None), "Cannot pre-compute these.  How are these not `None`..."
+            assert integration_timesteps is not None, "Must supply integration_timesteps for variable timesteps."
 
             # TODO - Testing this implementation.  Including this entire function, in fact...
             @jax.vmap

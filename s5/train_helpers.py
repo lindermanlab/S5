@@ -6,6 +6,7 @@ from tqdm import tqdm
 from flax.training import train_state
 import optax
 from typing import Any, Tuple
+from timeit import default_timer as dt
 
 # Import any additional losses we might need for different applications.
 from s5.cru.losses import mse, GaussianNegLogLik
@@ -365,15 +366,19 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
 def validate(state, model, testloader, seq_len, in_dim, batchnorm, step_rescale=1.0, cru=False):
     """Validation function that loops over batches"""
     model = model(training=False, step_rescale=step_rescale)
-    losses, accuracies, preds = np.array([]), np.array([]), np.array([])
+    losses, accuracies, preds, times = np.array([]), np.array([]), np.array([]), np.array([])
     for batch_idx, batch in enumerate(tqdm(testloader)):
         inputs, labels, integration_timesteps = prep_batch(batch, seq_len, in_dim)
+        st = dt()
         loss, acc, pred = eval_step(inputs, labels, integration_timesteps, state, model, batchnorm, cru=cru)
+        _ = loss.block_until_ready()  # Make it wait before proceeding.
+        times = np.append(times, dt() - st)
+
         losses = np.append(losses, loss)
         accuracies = np.append(accuracies, acc)
 
-    aveloss, aveaccu = np.mean(losses), np.mean(accuracies)
-    return aveloss, aveaccu
+    aveloss, aveaccu, sumtime = np.mean(losses), np.mean(accuracies), np.sum(times)
+    return aveloss, aveaccu, sumtime
 
 
 @partial(jax.jit, static_argnums=(5, 6, 7))

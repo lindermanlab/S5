@@ -80,7 +80,8 @@ class StackedEncoderModel(nn.Module):
             # There are three ways that we handle the integration timestep.
             if (not self.use_integration_timestep) or self.append_integration_timestep:
                 # If we aren't using the integration timesteps, then make them equal one.
-                integration_timesteps = 1.0 + (integration_timesteps * 0.0)
+                # integration_timesteps = 1.0 + (integration_timesteps * 0.0)
+                integration_timesteps = None  # TODO - Alternative method for discarding integration timesteps.
                 print('\n\nWarning:  discarding/appending integration timesteps. \n\n')
 
         for layer in self.layers:

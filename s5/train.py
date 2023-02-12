@@ -3,6 +3,7 @@ from jax import random
 import jax.numpy as np
 from jax.scipy.linalg import block_diag
 import wandb
+from timeit import default_timer as dt
 
 from .train_helpers import create_train_state, reduce_lr_on_plateau,\
     linear_warmup, cosine_annealing, constant_lr, train_epoch, validate
@@ -229,22 +230,30 @@ def train(args):
 
         if valloader is not None:
             print(f"[*] Running Epoch {epoch + 1} Validation...")
-            val_loss, val_acc = validate(state,
-                                         model_cls,
-                                         valloader,
-                                         seq_len,
-                                         in_dim,
-                                         args.batchnorm,
-                                         cru=cru)
+            st = dt()
+            val_loss, val_acc, sum_time = validate(state,
+                                                   model_cls,
+                                                   valloader,
+                                                   seq_len,
+                                                   in_dim,
+                                                   args.batchnorm,
+                                                   cru=cru)
+            blocked = val_loss.block_until_ready()
+            outer_eval_time = dt() - st
+            print("Outer epoch evaluation time: ", outer_eval_time, blocked)
 
             print(f"[*] Running Epoch {epoch + 1} Test...")
-            test_loss, test_acc = validate(state,
-                                           model_cls,
-                                           testloader,
-                                           seq_len,
-                                           in_dim,
-                                           args.batchnorm,
-                                           cru=cru)
+            st = dt()
+            test_loss, test_acc, sum_time = validate(state,
+                                                     model_cls,
+                                                     testloader,
+                                                     seq_len,
+                                                     in_dim,
+                                                     args.batchnorm,
+                                                     cru=cru)
+            blocked = test_loss.block_until_ready()
+            outer_eval_time = dt() - st
+            print("Outer epoch evaluation time: ", outer_eval_time, blocked)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
@@ -256,13 +265,17 @@ def train(args):
         else:
             # else use test set as validation set (e.g. IMDB)
             print(f"[*] Running Epoch {epoch + 1} Test...")
-            val_loss, val_acc = validate(state,
-                                         model_cls,
-                                         testloader,
-                                         seq_len,
-                                         in_dim,
-                                         args.batchnorm,
-                                         cru=cru)
+            st = dt()
+            val_loss, val_acc, sum_time = validate(state,
+                                                   model_cls,
+                                                   testloader,
+                                                   seq_len,
+                                                   in_dim,
+                                                   args.batchnorm,
+                                                   cru=cru)
+            blocked = val_loss.block_until_ready()
+            outer_eval_time = dt() - st
+            print("Outer epoch evaluation time: ", outer_eval_time, blocked)
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
@@ -290,16 +303,16 @@ def train(args):
             if speech:
                 # Evaluate on resolution 2 val and test sets
                 print(f"[*] Running Epoch {epoch + 1} Res 2 Validation...")
-                val2_loss, val2_acc = validate(state,
-                                               model_cls,
-                                               aux_dataloaders['valloader2'],
-                                               int(seq_len // 2),
-                                               in_dim,
-                                               args.batchnorm,
-                                               step_rescale=2.0)
+                val2_loss, val2_acc, _ = validate(state,
+                                                  model_cls,
+                                                  aux_dataloaders['valloader2'],
+                                                  int(seq_len // 2),
+                                                  in_dim,
+                                                  args.batchnorm,
+                                                  step_rescale=2.0)
 
                 print(f"[*] Running Epoch {epoch + 1} Res 2 Test...")
-                test2_loss, test2_acc = validate(state, model_cls, aux_dataloaders['testloader2'], int(seq_len // 2), in_dim, args.batchnorm, step_rescale=2.0)
+                test2_loss, test2_acc, _ = validate(state, model_cls, aux_dataloaders['testloader2'], int(seq_len // 2), in_dim, args.batchnorm, step_rescale=2.0)
                 print(f"\n=>> Epoch {epoch + 1} Res 2 Metrics ===")
                 print(
                     f"\tVal2 Loss: {val2_loss:.5f} --Test2 Loss: {test2_loss:.5f} --"
@@ -336,7 +349,9 @@ def train(args):
                         "Learning rate count": lr_count,
                         "Opt acc": opt_acc,
                         "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-                        "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
+                        "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'],
+                        "sum_eval_step_time": sum_time,
+                        "outer_eval_time": outer_eval_time,
                     }
                 )
             else:
@@ -351,7 +366,9 @@ def train(args):
                         "Learning rate count": lr_count,
                         "Opt acc": opt_acc,
                         "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-                        "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
+                        "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'],
+                        "sum_eval_step_time": sum_time,
+                        "outer_eval_time": outer_eval_time,
                     }
                 )
 
@@ -365,7 +382,9 @@ def train(args):
                     "Learning rate count": lr_count,
                     "Opt acc": opt_acc,
                     "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
-                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate']
+                    "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'],
+                    "sum_eval_step_time": sum_time,
+                    "outer_eval_time": outer_eval_time,
                 }
             )
         wandb.run.summary["Best Val Loss"] = best_loss
