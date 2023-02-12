@@ -353,10 +353,10 @@ def train(args):
                         "Opt acc": opt_acc,
                         "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
                         "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'],
-                        "sum_eval_step_time": sum_eval_step_time,
-                        "outer_eval_time": outer_eval_time,
-                        "sum_train_step_time": sum_train_step_time,
-                        "outer_train_step_time": outer_train_step_time,
+                        "timing/sum_eval_step_time": sum_eval_step_time,
+                        "timing/outer_eval_time": outer_eval_time,
+                        "timing/sum_train_step_time": sum_train_step_time,
+                        "timing/outer_train_step_time": outer_train_step_time,
                     }
                 )
             else:
@@ -372,10 +372,10 @@ def train(args):
                         "Opt acc": opt_acc,
                         "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
                         "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'],
-                        "sum_eval_step_time": sum_eval_step_time,
-                        "outer_eval_time": outer_eval_time,
-                        "sum_train_step_time": sum_train_step_time,
-                        "outer_train_step_time": outer_train_step_time,
+                        "timing/sum_eval_step_time": sum_eval_step_time,
+                        "timing/outer_eval_time": outer_eval_time,
+                        "timing/sum_train_step_time": sum_train_step_time,
+                        "timing/outer_train_step_time": outer_train_step_time,
                     }
                 )
 
@@ -390,10 +390,10 @@ def train(args):
                     "Opt acc": opt_acc,
                     "lr": state.opt_state.inner_states['regular'].inner_state.hyperparams['learning_rate'],
                     "ssm_lr": state.opt_state.inner_states['ssm'].inner_state.hyperparams['learning_rate'],
-                    "sum_eval_step_time": sum_eval_step_time,
-                    "outer_eval_time": outer_eval_time,
-                    "sum_train_step_time": sum_train_step_time,
-                    "outer_train_step_time": outer_train_step_time,
+                    "timing/sum_eval_step_time": sum_eval_step_time,
+                    "timing/outer_eval_time": outer_eval_time,
+                    "timing/sum_train_step_time": sum_train_step_time,
+                    "timing/outer_train_step_time": outer_train_step_time,
                 }
             )
         wandb.run.summary["Best Val Loss"] = best_loss
