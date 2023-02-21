@@ -340,7 +340,7 @@ def train(args):
                 wandb.log(
                     {
                         "Training Loss": train_loss,
-                        "Val loss": val_loss,
+                        "Val Loss": val_loss,
                         "Val Accuracy": val_acc,
                         "Test Loss": test_loss,
                         "Test Accuracy": test_acc,
@@ -365,7 +365,7 @@ def train(args):
                 wandb.log(
                     {
                         "Training Loss": train_loss,
-                        "Val loss": val_loss,
+                        "Val Loss": val_loss,
                         "Val Accuracy": val_acc,
                         "Test Loss": test_loss,
                         "Test Accuracy": test_acc,
@@ -387,7 +387,7 @@ def train(args):
             wandb.log(
                 {
                     "Training Loss": train_loss,
-                    "Val loss": val_loss,
+                    "Val Loss": val_loss,
                     "Val Accuracy": val_acc,
                     "Best Test Accuracy": best_test_acc,
                     "Best Test Loss": best_test_loss,
