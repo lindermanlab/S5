@@ -407,6 +407,10 @@ def train(args):
         wandb.run.summary["Best Epoch"] = best_epoch
         wandb.run.summary["Best Test Loss"] = best_test_loss
         wandb.run.summary["Best Test Accuracy"] = best_test_acc
+        wandb.run.summary["Sum Eval Step Time"] = sum_eval_step_time
+        wandb.run.summary["Outer Eval Step Time"] = outer_eval_time
+        wandb.run.summary["Sum Train Step Time"] = sum_train_step_time
+        wandb.run.summary["Outer Train Step Time"] = outer_train_step_time
 
         if count > args.early_stop_patience:
             break
