@@ -356,6 +356,7 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
             batchnorm,
             cru=cru
         )
+        blocked = loss.block_until_ready()  # Make it wait before proceeding.
         times.append(dt() - st)
         batch_losses.append(loss)
         lr_params = (decay_function, ssm_lr, lr, step, end_step, opt_config, lr_min)
@@ -373,9 +374,7 @@ def validate(state, model, testloader, seq_len, in_dim, batchnorm, step_rescale=
         inputs, labels, integration_timesteps = prep_batch(batch, seq_len, in_dim)
         st = dt()
         loss, acc, pred = eval_step(inputs, labels, integration_timesteps, state, model, batchnorm, cru=cru)
-        # print(dt() - st, loss)
         blocked = loss.block_until_ready()  # Make it wait before proceeding.
-        # print(dt() - st, blocked)
         times = np.append(times, dt() - st)
 
         losses = np.append(losses, loss)
