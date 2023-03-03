@@ -1,7 +1,14 @@
 # S5: Simplified State Space Layers for Sequence Modeling
 
 This repository provides the implementation for the
-paper: Simplified State Space Layers for Sequence Modeling.  The preprint is available [here](https://arxiv.org/abs/2208.04933).
+paper:
+
+**Simplified State Space Layers for Sequence Modeling**  
+Jimmy T.H. Smith\*, Andrew Warrington\*, Scott Linderman
+International Conference on Learning Representations, 2023. 
+Notable top 5% (Oral).  
+arXiv: https://arxiv.org/abs/2212.14052
+OpenReview: https://openreview.net/forum?id=Ai8Hw3AXqks
 
 ![](./docs/figures/pngs/s5-matrix-blocks.png)
 <p style="text-align: center;">
@@ -78,15 +85,13 @@ regression dataloading and experiments will be added soon.
 ## Citation
 Please use the following when citing our work:
 ```
-@misc{smith2022s5,
-  doi = {10.48550/ARXIV.2208.04933},
-  url = {https://arxiv.org/abs/2208.04933},
-  author = {Smith, Jimmy T. H. and Warrington, Andrew and Linderman, Scott W.},
-  keywords = {Machine Learning (cs.LG), FOS: Computer and information sciences, FOS: Computer and information sciences},
-  title = {Simplified State Space Layers for Sequence Modeling},
-  publisher = {arXiv},
-  year = {2022},
-  copyright = {Creative Commons Attribution 4.0 International}
+@inproceedings{
+smith2023simplified,
+title={Simplified State Space Layers for Sequence Modeling},
+author={Jimmy T.H. Smith and Andrew Warrington and Scott Linderman},
+booktitle={The Eleventh International Conference on Learning Representations },
+year={2023},
+url={https://openreview.net/forum?id=Ai8Hw3AXqks}
 }
 ```
 
