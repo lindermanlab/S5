@@ -4,11 +4,11 @@ This repository provides the implementation for the
 paper:
 
 **Simplified State Space Layers for Sequence Modeling**  
-Jimmy T.H. Smith\*, Andrew Warrington\*, Scott Linderman
-International Conference on Learning Representations, 2023. 
-Notable top 5% (Oral).  
-arXiv: https://arxiv.org/abs/2212.14052
-OpenReview: https://openreview.net/forum?id=Ai8Hw3AXqks
+Jimmy T.H. Smith\*, Andrew Warrington\*, Scott Linderman  
+International Conference on Learning Representations, 2023.  
+Notable top-25% (spotlight).  
+[arXiv](https://arxiv.org/abs/2212.14052)  
+[OpenReview](https://openreview.net/forum?id=Ai8Hw3AXqks)
 
 ![](./docs/figures/pngs/s5-matrix-blocks.png)
 <p style="text-align: center;">
