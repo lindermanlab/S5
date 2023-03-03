@@ -6,7 +6,7 @@ paper:
 **Simplified State Space Layers for Sequence Modeling**  
 Jimmy T.H. Smith\*, Andrew Warrington\*, Scott Linderman  
 International Conference on Learning Representations, 2023.  
-Notable top-25% (spotlight).  
+Notable-top-5% (Oral).  
 [arXiv](https://arxiv.org/abs/2212.14052)  
 [OpenReview](https://openreview.net/forum?id=Ai8Hw3AXqks)
 
