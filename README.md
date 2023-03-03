@@ -7,7 +7,7 @@ paper:
 Jimmy T.H. Smith\*, Andrew Warrington\*, Scott Linderman  
 International Conference on Learning Representations, 2023.  
 Notable-top-5% (Oral).  
-[arXiv](https://arxiv.org/abs/2212.14052)  
+[arXiv](https://arxiv.org/abs/2208.04933)  
 [OpenReview](https://openreview.net/forum?id=Ai8Hw3AXqks)
 
 ![](./docs/figures/pngs/s5-matrix-blocks.png)
