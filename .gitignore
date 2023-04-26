@@ -160,7 +160,7 @@ cython_debug/
 .idea/
 *.pyc
 
-# S5 specific stuff
+# hyena_S5 specific stuff
 wandb/
 cache_dir/
 raw_datasets/

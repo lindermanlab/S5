@@ -1,0 +1,72 @@
+seed: 0
+
+# Wandb
+project: # todo
+entity: # todo
+
+# Training
+lr: 0.001
+weight_decay: 0.25
+
+t_lr: 0.0      # time embedding lr
+z_lr: 0.0      # positional embedding lr
+deltas_lr: 0.0 # modulation lr
+implicit_filter_lr:  0.0008
+implicit_filter_weight_decay: 0.0
+
+lr_schedule: "cosine"
+total_steps: 115000 #100 epochs, bsz 32 takes 3600 steps for epoch
+warmup_steps: 1000
+save_interval: 200000
+log_interval: 150
+
+# Data
+dataset: "wikitext103"
+vocab_size: 50257
+l_max: 1024
+
+data_kwargs:
+    batch_size: 16
+    batch_size_eval: 16
+    num_workers: 4
+    pin_memory: False
+    data_dir: # todo
+
+rng_keys: ["dropout"]
+
+# Model
+model: 'hyena_simplelm'
+d_model: 768
+n_layer: 12
+d_inner: 3072
+
+layer: "S5_operator"
+layer_kwargs:
+    ssm_size: 128
+    ssm_blocks: 32
+    order: 2
+    num_heads: 1
+    inner_factor: 1
+    num_blocks: 1
+    outer_mixing: False
+    drop_rate: 0.15
+    filter_dropout: 0.0
+    filter_cls: 'hyena_S5'
+    post_order_ffn: False
+    short_filter_order: 3
+    activation_type: "id"
+    return_state: False
+    filter_args:
+        C_init: "complex_normal"
+        dt_min: 0.001
+        dt_max: 0.1
+        conj_sym: False
+        clip_eigs: True
+        activation: "gelu"
+
+seq_model_kwargs:
+    max_position_embeddings: 0
+    resid_dropout: 0.0
+    embed_dropout: 0.2
+    layer_norm_epsilon: 0.00001
+    pad_vocab_size_multiple: 1

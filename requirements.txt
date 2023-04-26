@@ -1,0 +1,8 @@
+einops
+flax
+datasets
+transformers
+torchvision
+pytorch-lightning
+omegaconf
+wandb

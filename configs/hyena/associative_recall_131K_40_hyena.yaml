@@ -1,0 +1,72 @@
+seed: 0
+
+# Wandb
+project: # todo
+entity: # todo
+
+# Training
+lr: 0.0005
+weight_decay: 0.1
+
+t_lr: 0.0      # time embedding lr
+z_lr: 0.0      # positional embedding lr
+deltas_lr: 0.0 # modulation lr
+implicit_filter_lr:  0.0005 # I do not think this is currently working, need to fix mapping
+implicit_filter_weight_decay: 0.0
+
+lr_schedule: "cosine"
+total_steps: 50000
+warmup_steps: 5000
+save_interval: 100000
+log_interval: 150
+
+# Data
+dataset: "icl_synthetics"
+num_examples: 4000
+num_test_examples: 500
+vocab_size: 40
+copy_method: "assoc_recall"
+input_seq_len: 131072
+l_max: 131074 #${eval:${.input_seq_len} + 2} #might be something +2 or 1 depending on task
+
+data_kwargs:
+    seed: 0
+    batch_size: 32
+    data_dir: # todo
+
+rng_keys: ["dropout"]
+
+# Model
+model: 'hyena_simplelm'
+d_model: 64
+n_layer: 2
+d_inner: 256
+
+layer: "hyena"
+layer_kwargs:
+    order: 2
+    filter_order: 64
+    num_heads: 1
+    inner_factor: 1
+    num_blocks: 1
+    outer_mixing: False
+    drop_rate: 0.0
+    filter_dropout: 0.0
+    filter_cls: 'hyena-filter'
+    post_order_ffn: False
+    short_filter_order: 3
+    activation_type: "id"
+    return_state: False
+    filter_args:
+        emb_dim: 5 # dim of input to MLP, augments with positional encoding
+        w: 10  # frequency of periodic activations (note filter configs say 1, default in object is 10, and final hydra filter indicates 10)
+        use_bias: True
+        num_inner_mlps: 2
+        normalized: False
+
+seq_model_kwargs:
+    max_position_embeddings: 0
+    resid_dropout: 0.0
+    embed_dropout: 0.1
+    layer_norm_epsilon: 0.00001
+    pad_vocab_size_multiple: 1
