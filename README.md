@@ -17,7 +17,7 @@ showed strong performance (when combined with a couple of attention layers in a 
 challenging versions of synthetic in-context learning tasks (e.g. associative recall with 131K length sequences and vocab size of 30). Hyena showed strong attention-free performance and the ability to match perplexity and downstream performance of Transformers when trained on The Pile.  
 A disadvantage of Hyena's implicit convolutions is that it loses the recurrent formulations (and fast autoregressive generation) that SSM methods such as S4/S5 provide.
 
-Are the implicitly parameterized convolutions necessary and are SSM methods really not expressive enough? We were curious, so we simply replaced the Hyena implicit convolution filters with S5 SSMs. We will refer to this as Hyena-S5
+Are the implicitly parameterized convolutions necessary and are SSM methods not expressive enough? We were curious how S5 would do in this setting, so we simply replaced the Hyena implicit convolution filters with S5 SSMs. We will refer to this as Hyena-S5
 since we used the exact Hyena operator implementation (ported into JAX) and simply replaced the implicitly parameterized convolutions. However,
 we also note that when only order 2 operators are used (as we do here), this is essentially H3, but with S5 used instead of S4D (and a short convolution instead of H3's shift matrix).
 
