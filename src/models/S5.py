@@ -55,7 +55,7 @@ def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym):
             bidirectional (bool):    whether bidirectional setup is used,
                                   Note for this case C_tilde will have 2P cols
         Returns:
-            ys (float32): the SSM outputs (hyena_S5 layer preactivations)      (L, H)
+            ys (float32): the SSM outputs (S5 layer preactivations)      (L, H)
     """
     Lambda_elements = Lambda_bar * np.ones((input_sequence.shape[0],
                                             Lambda_bar.shape[0]))
@@ -97,7 +97,7 @@ class S5SSM(nn.Module):
     clip_eigs: bool = False
     activation: str = "gelu"
 
-    """ The hyena_S5 SSM
+    """ The S5 SSM
         Args:
             Lambda_re_init (complex64): Real part of init diag state matrix  (P,)
             Lambda_im_init (complex64): Imag part of init diag state matrix  (P,)
@@ -199,7 +199,7 @@ class S5SSM(nn.Module):
 
     def __call__(self, input_sequence, training=True):
         """
-        Compute the LxH output of the hyena_S5 SSM given an LxH input sequence
+        Compute the LxH output of the S5 SSM given an LxH input sequence
         using a parallel scan.
         Args:
              input_sequence (float32): input sequence (bsz, num_heads, H, num_blocks, L)
