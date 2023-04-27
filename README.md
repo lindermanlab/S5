@@ -17,8 +17,8 @@ showed strong performance (when combined with a couple of attention layers in a 
 challenging versions of synthetic in-context learning tasks (e.g. associative recall with 131K length sequences and vocab size of 30). Hyena showed strong attention-free performance and the ability to match perplexity and downstream performance of Transformers when trained on The Pile.  
 A disadvantage of Hyena's implicit convolutions is that it loses the recurrent formulations (and fast autoregressive generation) that SSM methods such as S4/S5 provide.
 
-Are the implicitly parameterized convolutions necessary and are SSM methods really not expressive enough? We were curious to just plug S5 SSMs in for the Hyena implicit convolution filters. We will refer to this as Hyena-S5
-since we used the exact Hyena operator implementation (ported into JAX) and simply replaced the implicit convolutions. However,
+Are the implicitly parameterized convolutions necessary and are SSM methods really not expressive enough? We were curious, so we simply replaced the Hyena implicit convolution filters with S5 SSMs. We will refer to this as Hyena-S5
+since we used the exact Hyena operator implementation (ported into JAX) and simply replaced the implicitly parameterized convolutions. However,
 we also note that when only order 2 operators are used (as we do here), this is essentially H3, but with S5 used instead of S4D (and a short convolution instead of H3's shift matrix).
 
 Our results indicate that Hyena-S5 can solve the challenging associative recall in-context learning tasks and can also outperform Transformers on WikiText without any attention layers. We fully recognize that these are relatively small scale results these days, but it is at least a datapoint that S5 combined with 
