@@ -1,11 +1,40 @@
-# IMPORTANT NOTICE: 
-This code branch is under active development and should not to be used.  
+# S5 Pendulum Experiments:
+
+This branch contains code for reproduction of the variable interval sampling (pendulum) example included in the S5 paper.  This code requires a bit of extra plumbing and so we keep it separate from the core code.  
+
+The data for the pendulum example is generated using the code [here](), which is a lightly modified version of the [CRU code]().  The data can be generated be running:
+```
+git clone https://github.com/lindermanlab/S5.git
+cd S5
+pip install -r requirements.txt
+mkdir -p cache_dir
+git checkout pendulum
+git clone https://github.com/andrewwarrington/Continuous-Recurrent-Units.git
+cd Continuous-Recurrent-Units
+pip install -r requirements.txt
+wandb login  % If using wandb, follow the on-screen instructions.
+python run_experiment.py --dataset pendulum --task regression -lsd 30 --sample-rate 0.5 --USE-WANDB 0 --dir_name ./../cache_dir --exit_after_generation 1  % Generate the data, then exit.
+```
+The pendulum experiments can then be run using:
+```
+./bin/run_experiments/run_pendulum.sh
+```
 
 
-# S5: Simplified State Space Layers for Sequence Modeling
+
+
+
+# S5: Simplified State Space Layers for Sequence Modeling -- 
 
 This repository provides the implementation for the
-paper: Simplified State Space Layers for Sequence Modeling.  The preprint is available [here](https://arxiv.org/abs/2208.04933).
+paper:
+
+**Simplified State Space Layers for Sequence Modeling**  
+Jimmy T.H. Smith\*, Andrew Warrington\*, Scott Linderman  
+International Conference on Learning Representations, 2023.  
+Notable-top-5% (Oral).  
+[arXiv](https://arxiv.org/abs/2208.04933)  
+[OpenReview](https://openreview.net/forum?id=Ai8Hw3AXqks)
 
 ![](./docs/figures/pngs/s5-matrix-blocks.png)
 <p style="text-align: center;">
@@ -77,20 +106,25 @@ The configurations to run the LRA and 35-way Speech Commands experiments from th
 to run the LRA text (character level IMDB) experiment, run `./bin/run_experiments/run_lra_imdb.sh`. 
 To log with W&B, adjust the default `USE_WANDB, wandb_entity, wandb_project` arguments. 
 Note: the pendulum
-regression dataloading and experiments will be added soon.
+regression dataloading and experiments are on the separate [pendulum](https://github.com/lindermanlab/S5/tree/pendulum) branch.
+
+## Language Modeling
+Check out the [development](https://github.com/lindermanlab/S5/tree/development) branch, where we have started to add some preliminary language modeling tasks such 
+as WikiText-103 and the synthetic in-context learning tasks from the [H3](https://arxiv.org/abs/2212.14052) and [Hyena](https://arxiv.org/abs/2302.10866) papers.
+We have found simply replacing Hyena's implicitly parameterized convolutions with S5 SSMs provides strong performance on these tasks.
+We hope to add larger scale experiments and plan to merge some of the new training infrastructure into the main branch soon!
+
 
 ## Citation
 Please use the following when citing our work:
 ```
-@misc{smith2022s5,
-  doi = {10.48550/ARXIV.2208.04933},
-  url = {https://arxiv.org/abs/2208.04933},
-  author = {Smith, Jimmy T. H. and Warrington, Andrew and Linderman, Scott W.},
-  keywords = {Machine Learning (cs.LG), FOS: Computer and information sciences, FOS: Computer and information sciences},
-  title = {Simplified State Space Layers for Sequence Modeling},
-  publisher = {arXiv},
-  year = {2022},
-  copyright = {Creative Commons Attribution 4.0 International}
+@inproceedings{
+smith2023simplified,
+title={Simplified State Space Layers for Sequence Modeling},
+author={Jimmy T.H. Smith and Andrew Warrington and Scott Linderman},
+booktitle={The Eleventh International Conference on Learning Representations },
+year={2023},
+url={https://openreview.net/forum?id=Ai8Hw3AXqks}
 }
 ```
 
