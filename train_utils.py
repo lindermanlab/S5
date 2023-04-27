@@ -151,7 +151,6 @@ def get_optimizer(config, params):
 def init_model_state(rng_key, model, input, config):
     variables = model.init({k: rng_key for k in ['params', *config.rng_keys]}, input, training=True
     ).unfreeze()
-    # params = freeze(variables.pop('params'))
     params = variables.pop('params')
     model_state = variables
     print_model_size(params)

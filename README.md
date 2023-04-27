@@ -1,8 +1,8 @@
 # Experimental: Language Modeling
 
 This branch provides preliminary examples using [S5](https://arxiv.org/abs/2208.04933) for language modeling. We have 
-reused the pytorch dataloading code and ported some of the source code from the [Safari: Convolutions for 
-Sequence Modeling](https://github.com/HazyResearch/safari) repository, including the core code required for the Associative Recall in-context learning task 
+reused the pytorch dataloading code and ported some of the pytorch source from the [Safari: Convolutions for 
+Sequence Modeling](https://github.com/HazyResearch/safari) repository into JAX, including the core code required for the Associative Recall in-context learning task 
 and WikiText-103 as performed in the [H3](https://arxiv.org/abs/2212.14052) and 
 [Hyena](https://arxiv.org/abs/2302.10866) papers. The training loop implementation of this branch was inspired by the [TECO](https://github.com/wilson1yan/teco) repository.  
 
@@ -49,11 +49,11 @@ python train.py -o output_dir_name -c configs/hyena_S5/associative_recall_131K_3
 ```
 
 We averaged Hyena-S5 over 10 random seeds and obtained an average accuracy of 97.2%, which matches the performance reported for 
-Hyena with implicit convolutions. For comparison we have added our result to the table from [Hyena](https://arxiv.org/abs/2302.10866):
+Hyena with implicit convolutions. For comparison we have added our result to the table from the Hyena paper: 
 
 ![](Tables/assoc_recall.png)
 
-See an example wandb run for both Hyena and Hyena-S5 here: [here](https://api.wandb.ai/links/jimmysmith1919/15am8usz). 
+See an example wandb run for both Hyena and Hyena-S5 [here](https://api.wandb.ai/links/jimmysmith1919/15am8usz). 
 
 
 ### Associative Recall, 131K, vocab=40
@@ -85,7 +85,7 @@ python train.py -o output_dir_name -c configs/hyena_S5/wikitext_S5.yaml
 ```
 
 See an example wandb run for both Hyena and Hyena-S5 [here](https://api.wandb.ai/links/jimmysmith1919/ddfhke4q). 
-Hyena-S5 achieves 18.3 perplexity after 100K steps. For comparison, we have added our result to the table from [Hyena](https://arxiv.org/abs/2302.10866):
+Hyena-S5 achieves 18.3 perplexity after 100K steps. For comparison, we have added our result to the table from the Hyena paper:
 
 ![](Tables/wikitext103.png)
 

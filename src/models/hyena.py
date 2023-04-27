@@ -42,7 +42,6 @@ def fftconv_ref(u, k, D, dropout_mask, gelu=True, k_rev=None):
     if k_rev is not None:
         k_rev_f = np.fft.rfft(k_rev, n=fft_size) / fft_size
         k_f = k_f + k_rev_f.conj()
-    # u_f = np.fft.rfft(u.to(dtype=k.dtype), n=fft_size)
     u_f = np.fft.rfft(u, n=fft_size)
 
     # if len(u.shape) > 3: k_f = k_f.unsqueeze(1)
@@ -51,20 +50,16 @@ def fftconv_ref(u, k, D, dropout_mask, gelu=True, k_rev=None):
 
     y = np.fft.irfft(u_f * k_f, n=fft_size, norm='forward')[..., :seqlen]
 
-    # out = y + u * D.unsqueeze(-1)
     out = y + u * np.expand_dims(D, -1)
     if gelu:
         out = nn.activation.gelu(out, approximate=False)
     if dropout_mask is not None:
-        # return (out * rearrange(dropout_mask, 'b H -> b H 1')).to(dtype=u.dtype)
         return (out * rearrange(dropout_mask, 'b H -> b H 1'))
     else:
-        # return out.to(dtype=u.dtype)
         return out
 
 
 def mul_sum(q, y):
-    # return (q * y).sum(dim=1)
     return np.sum(q * y, axis=1)
 
 
@@ -88,9 +83,6 @@ class PositionalEmbedding(nn.Module):
     seq_len: int
     lr_pos_emb: float = 1e-5
 
-    # lrs = {"t": 0.0,
-    #        "z": lr_pos_emb}
-
     def setup(self):
         """Complex exponential positional embeddings for Hyena filters."""
         # The time embedding fed to the filters is normalized so that t_f = 1
@@ -99,9 +91,6 @@ class PositionalEmbedding(nn.Module):
         #                     (None,) ) # 1, L, 1
 
         self.t = np.linspace(0, 1, self.seq_len)[None, :, None]
-
-        # TODO: I think t is not being trained
-        # self.register("t", t, lr=0.0)
 
         def init_z():
             if self.emb_dim > 1:
@@ -116,8 +105,6 @@ class PositionalEmbedding(nn.Module):
             return z
 
         self.z = init_z()
-        # self.z = self.param("z", lambda rng, shape: init_z(), (None,))
-        # self.register("z", z, lr=lr_pos_emb)
 
     def __call__(self, L):
         return self.z[:, :L], self.t[:, :L]
@@ -132,8 +119,6 @@ class ExponentialModulation(nn.Module):
     modulate: bool = True
     shift: float = 0.0
 
-    # lrs = {"deltas": modulation_lr}
-
     def setup(self):
         def init_deltas():
             max_decay = math.log(self.target) / self.fast_decay_pct
@@ -141,10 +126,8 @@ class ExponentialModulation(nn.Module):
             deltas = np.linspace(min_decay, max_decay, self.d_model)[None, None]
             return deltas
 
-        # self.deltas = self.param("deltas", lambda rng, shape: init_deltas(), (None,))
         self.deltas = init_deltas()
-        # TODO: make sure deltas lr is noted
-        # self.register("deltas", deltas, lr=modulation_lr)
+
     def __call__(self, t, x):
         if self.modulate:
             decay = np.exp(-t * np.abs(self.deltas))
@@ -167,9 +150,6 @@ class HyenaFilter(nn.Module):
     num_inner_mlps: int = 2
     normalized: bool = False
 
-    # lrs = {'implicit_filter': lr}
-    # wds = {'implicit_filter': wd}
-
     def setup(self):
         """
         Implicit long filter with modulation.
@@ -185,7 +165,6 @@ class HyenaFilter(nn.Module):
         """
 
         self.bias = self.param("bias", normal(stddev=1.0), (self.d_model,))
-        # self.dropout = nn.Dropout(self.drop_rate, deterministic=not self.training)
 
         act = Sin(dim=self.order, w=self.w)
         assert self.emb_dim % 2 != 0 and self.emb_dim >= 3, "emb_dim must be odd and greater or equal to 3 (time, sine and cosine)"
@@ -199,24 +178,7 @@ class HyenaFilter(nn.Module):
             implicit_filter_list.append(act)
 
         implicit_filter_list.append(nn.Dense(self.d_model, use_bias=False))
-
         self.implicit_filter = nn.Sequential(implicit_filter_list, name='implicit_filter')
-
-        # self.implicit_filter = nn.Sequential(
-        #     nn.Dense(self.order),
-        #     act,
-        # )
-        # for i in range(self.num_inner_mlps):
-        #     self.implicit_filter.append(nn.Dense(self.order))
-        #     self.implicit_filter.append(act)
-        # final linear layer
-        # self.implicit_filter.append(nn.Dense(self.d_model, use_bias=False))
-        # TODO: look into learning rates of mlp layers
-        # for c in self.implicit_filter.children():
-        #     for name, v in c.state_dict().items():
-        #         optim = {"weight_decay": wd, "lr": lr}
-        #         setattr(getattr(c, name), "_optim", optim)
-
         self.modulation = ExponentialModulation(self.d_model)
 
     def filter(self, L):
@@ -241,11 +203,6 @@ class HyenaFilter(nn.Module):
 
         if self.fused_fft_conv:
             pass
-            # bias = bias.to(dtype=torch.float32)
-            # y = fftconv_func(
-            #     x, k, bias, dropout_mask=None, gelu=False,
-            #     force_fp16_output=torch.is_autocast_enabled()
-            # )
         else:
             y = fftconv_ref(x, k, bias, dropout_mask=None, gelu=False)
 
@@ -309,9 +266,6 @@ class HyenaOperator(nn.Module):
     def setup_projections(self, fused_bias_fc, inner_factor, initializer_range=0.02):
         "Initializes input and output projections (over the width dimension)"
 
-        # TODO: Initializer range may need to change for The Pile
-
-        # if fused_bias_fc and FusedDense is None:
         if fused_bias_fc:
             raise ImportError('fused_dense is not installed')
         if not fused_bias_fc:
@@ -324,7 +278,6 @@ class HyenaOperator(nn.Module):
             self.ord_proj_w = self.param("ord_proj_w",
                                          normal(stddev=1/math.sqrt(self.head_dim)),
                                          (self.order, self.num_heads, self.num_heads))
-                # torch.randn(self.order, self.num_heads, self.num_heads) / math.sqrt(self.head_dim))
 
     def setup_filters(self, filter_cls, filter_args):
         "Initializes the explicit and implicit filters"
@@ -336,17 +289,8 @@ class HyenaOperator(nn.Module):
                                     feature_group_count=total_width,
                                     padding=self.short_filter_order - 1)
 
-        # self.short_filter = nn.Conv1d(
-        #     in_channels=total_width,
-        #     out_channels=total_width,
-        #     kernel_size=self.short_filter_order,
-        #     groups=total_width,
-        #     padding=self.short_filter_order - 1
-        # )
-
-        # filter_cls = instantiate(registry.layer, filter_cls, partial=True)
-
         if self.filter_cls == 'hyena-filter':
+            # print('using Hyena-filter')
             filter_cls = HyenaFilter
         else:
             raise NotImplementedError("filter {} not implemented".format(self.filter_cls))
@@ -369,7 +313,6 @@ class HyenaOperator(nn.Module):
         l = u.shape[-2]
         l_filter = min(l, self.l_max)
         u = self.in_proj(u)
-        # u = rearrange(u, 'b l d -> b d l')
 
         # note u is still 'b l d'
         uc = self.short_filter(u)[:, :l_filter]
@@ -381,7 +324,6 @@ class HyenaOperator(nn.Module):
                        v=self.head_dim * (self.order + 1)
                        )
 
-        # *x, v = uc.split(self.d_model, dim=2)
         # Note jax.numpy.split has diff convention from torch.split()
         width = uc.shape[2]
         split_width = int(width // self.d_model)

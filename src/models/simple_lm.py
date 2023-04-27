@@ -68,7 +68,7 @@ class Mlp(nn.Module):
     out_features: int = None
     activation: nn.module = nn.gelu
     return_residual: bool = False
-    initializer_range: float = 0.02  # TODO: May change for The Pile
+    initializer_range: float = 0.02
 
     def setup(self):
         """
@@ -155,9 +155,7 @@ class Block(nn.Module):
             dropped = self.drop_path1(self.dropout1(deterministic=not training)(hidden_states), training)
             residual = (dropped + residual) if residual is not None else dropped
             hidden_states = self.norm1(residual)
-            # hidden_states = self.norm1(residual.to(dtype=self.norm1.weight.dtype))
-            # if self.residual_in_fp32:
-            #     residual = np.array(residual, dtype=np.float32)
+
             if mixer_kwargs is None:
                 mixer_kwargs = {}
             if mixer_subset is not None:
@@ -169,9 +167,6 @@ class Block(nn.Module):
                 dropped = self.drop_path2(self.dropout2(deterministic=not training)(hidden_states), training)
                 residual = (dropped + residual) if residual is not None else dropped
                 hidden_states = self.norm2(residual)
-                # hidden_states = self.norm2(residual.to(dtype=self.norm2.weight.dtype))
-                # if self.residual_in_fp32:
-                #     residual = np.array(residual, dtype=np.float32)
 
                 hidden_states = self.mlp(hidden_states)
             return hidden_states, residual
@@ -185,8 +180,6 @@ class Block(nn.Module):
 
             hidden_states = self.norm1(self.drop_path1(self.dropout1(deterministic=not training)(mixer_out), training)
                                        + hidden_states)
-            # hidden_states = self.norm1((self.drop_path1(self.dropout1(mixer_out))
-            #                             + hidden_states).to(dtype=self.norm1.weight.dtype))
 
             if not isinstance(self.mlp, Identity):
                 mlp_out = self.mlp(hidden_states)
@@ -195,8 +188,6 @@ class Block(nn.Module):
 
                 hidden_states = self.norm2(self.drop_path2(self.dropout2(deterministic=not training)(mlp_out), training)
                                            + hidden_states)
-                # hidden_states = self.norm2((self.drop_path2(self.dropout2(mlp_out))
-                #                             + hidden_states).to(dtype=self.norm2.weight.dtype))
 
             return hidden_states
 
@@ -246,39 +237,6 @@ def create_block(d_model, n_layer, l_max=None, layer_kwargs=None, d_inner=None,
     block.layer_idx = layer_idx
     return block
 
-# TODO: This special init may be important
-# # https://github.com/huggingface/transformers/blob/c28d04e9e252a1a099944e325685f14d242ecdcd/src/transformers/models/gpt2/modeling_gpt2.py#L454
-# def _init_weights(module, n_layer, initializer_range=0.02, rescale_prenorm_residual=True,
-#                   glu_act=False):
-#     if isinstance(module, nn.Dense):
-#         nn.init.normal_(module.weight, std=initializer_range)
-#         if module.bias is not None:
-#             nn.init.zeros_(module.bias)
-#     elif isinstance(module, nn.Embedding):
-#         nn.init.normal_(module.weight, std=initializer_range)
-#
-#     if rescale_prenorm_residual:
-#         # Reinitialize selected weights subject to the OpenAI GPT-2 Paper Scheme:
-#         #   > A modified initialization which accounts for the accumulation on the residual path with model depth. Scale
-#         #   > the weights of residual layers at initialization by a factor of 1/√N where N is the # of residual layers.
-#         #   >   -- GPT-2 :: https://openai.com/blog/better-language-models/
-#         #
-#         # Reference (Megatron-LM): https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/model/gpt_model.py
-#         for name, p in module.named_parameters():
-#             if name in ["out_proj.weight", "fc2.weight"]:
-#                 # Special Scaled Initialization --> There are 2 Layer Norms per Transformer Block
-#                 nn.init.normal_(p, mean=0.0, std=initializer_range / math.sqrt(2 * n_layer))
-#             # If using GLU activation for now, we scale the std by 2
-#             elif name in ["output_linear.0.weight"]:
-#                 # Special Scaled Initialization --> There are 2 Layer Norms per Transformer Block
-#                 if not glu_act:
-#                     nn.init.normal_(p, mean=0.0, std=initializer_range / math.sqrt(2 * n_layer))
-#                 else:
-#                     out_features = p.shape[0]
-#                     # Multiplying the first half of the matrix by 2 since sigmoid scales it down by 0.5
-#                     # on average.
-#                     nn.init.normal_(p[:out_features // 2], mean=0.0, std=initializer_range / math.sqrt(2 * n_layer) * 2)
-
 
 class LMBackbone(nn.Module):
     d_model: int
@@ -311,10 +269,6 @@ class LMBackbone(nn.Module):
 
         self.drop_f = partial(nn.Dropout, self.resid_dropout)
         self.ln_f = nn.LayerNorm(epsilon=self.layer_norm_epsilon)
-
-        # TODO: May need to init weights in this way
-        # self.apply(partial(_init_weights, n_layer=n_layer,
-        #                    **(initializer_cfg if initializer_cfg is not None else {})))
 
     @nn.compact
     def __call__(self, input_ids, training, position_ids=None):
@@ -363,16 +317,6 @@ class SimpleLMHeadModel(nn.Module):
             layer_norm_epsilon=self.layer_norm_epsilon,
             initializer_cfg=self.initializer_cfg
         )
-        # self.lm_head = nn.Dense(self.vocab_size, use_bias=False)
-
-        # TODO: special init may be important
-        # # Initialize weights and apply final processing
-        # self.apply(partial(_init_weights, n_layer=n_layer,
-        #                    **(initializer_cfg if initializer_cfg is not None else {})))
-        # self.tie_weights()
-    #
-    # def tie_weights(self):
-    #     self.lm_head.weight = self.backbone.embeddings.word_embeddings.weight
 
     def __call__(self, input_ids, training=True, position_ids=None, state=None):
         hidden_states = self.backbone(input_ids, training, position_ids=position_ids)

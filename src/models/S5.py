@@ -336,8 +336,6 @@ class S5Operator(nn.Module):
     def setup_projections(self, fused_bias_fc, inner_factor, initializer_range=0.02):
         "Initializes input and output projections (over the width dimension)"
 
-        # TODO: Initializer range may need to change for The Pile
-
         # if fused_bias_fc and FusedDense is None:
         if fused_bias_fc:
             raise ImportError('fused_dense is not installed')
@@ -363,6 +361,7 @@ class S5Operator(nn.Module):
                                     padding=self.short_filter_order - 1)
 
         if self.filter_cls == 'hyena_S5':
+            # print('Using S5 for filters')
             self.filter_fn = [init_S5SSM(self.d_model, self.ssm_size, self.ssm_blocks, filter_args) for _ in range(self.order-1)]
         else:
             raise NotImplementedError("filter {} not implemented".format(self.filter_cls))
