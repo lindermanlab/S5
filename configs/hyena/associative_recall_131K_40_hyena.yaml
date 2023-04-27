@@ -31,7 +31,7 @@ l_max: 131074 #${eval:${.input_seq_len} + 2} #might be something +2 or 1 dependi
 
 data_kwargs:
     seed: 0
-    batch_size: 32
+    batch_size: 16
     data_dir: # todo
 
 rng_keys: ["dropout"]

@@ -11,9 +11,9 @@ into the main branch.
 
 
 ## State Spaces for Language Modeling
-[H3](https://arxiv.org/abs/2212.14052) proposed combining data-controlled gating with SSMs (in particular [S4D](https://arxiv.org/abs/2206.11893)) and 
+[H3](https://arxiv.org/abs/2212.14052) proposed combining data-controlled multiplicative gating with SSMs (in particular [S4D](https://arxiv.org/abs/2206.11893)) and 
 showed strong performance (when combined with a couple of attention layers in a hybrid model) on [OpenWebText](https://huggingface.co/datasets/openwebtext) , [WikiText-103](https://huggingface.co/datasets/wikitext) and the [Pile](https://pile.eleuther.ai/).
-[Hyena](https://arxiv.org/abs/2302.10866) generalized the notion of multiplicative gating and replaced the SSMs of H3 with implicit convolutions, since using S4D for the convolution seemed to not perform as well on 
+[Hyena](https://arxiv.org/abs/2302.10866) generalized the notion of multiplicative gating and also replaced the SSMs of H3 with implicit convolutions, since using S4D for the convolution seemed to not perform as well on 
 synthetic in-context learning tasks developed in the H3 paper (e.g. associative recall with 131K length sequences). Hyena showed strong attention-free performance and the ability to match perplexity and downstream performance of Transformers when trained on The Pile.  
 A disadvantage of Hyena's implicit convolutions is that it loses the recurrent formulations that SSM methods such as S4D/S5 provide, which allow for fast autoregressive generation.
 
@@ -21,7 +21,7 @@ Are the implicit convolutions necessary and are SSM methods really not expressiv
 since we used the exact Hyena operator implementation (ported into JAX) and simply replaced the implicit convolutions. However,
 we also note that when only order 2 operators are used (as we do here), this is essentially H3, but with S5 used instead of S4D (and a short convolution instead of H3's shift matrix).
 
-Our results indicate that Hyena-S5 can solve the challenging associative recall in-context learning tasks and can also outperform Transformers on WikiText without any attention layers. We fully recognize that these are relatively small scale results these days, but is at least a datapoint that S5 combined with 
+Our results indicate that Hyena-S5 can solve the challenging associative recall in-context learning tasks and can also outperform Transformers on WikiText without any attention layers. We fully recognize that these are relatively small scale results these days, but it is at least a datapoint that S5 combined with 
 multiplicative gating can potentially be very effective.  We hope to scale up these and other ideas to larger datasets soon, stay tuned! 
 
 
@@ -49,11 +49,11 @@ python train.py -o output_dir_name -c configs/hyena_S5/associative_recall_131K_3
 ```
 
 We averaged Hyena-S5 over 10 random seeds and obtained an average accuracy of 97.2%, which matches the performance reported for 
-Hyena with implicit convolutions. For comparison we have added our result to the Table from [Hyena](https://arxiv.org/abs/2302.10866):
+Hyena with implicit convolutions. For comparison we have added our result to the table from [Hyena](https://arxiv.org/abs/2302.10866):
 
 ![](Tables/assoc_recall.png)
 
-See an example wandb run for both Hyena and Hyena-S5 here: [here](tbd). 
+See an example wandb run for both Hyena and Hyena-S5 here: [here](https://api.wandb.ai/links/jimmysmith1919/15am8usz). 
 
 
 ### Associative Recall, 131K, vocab=40
@@ -68,7 +68,7 @@ Hyena-S5
 ```commandline
 python train.py -o output_dir_name -c configs/hyena_S5/associative_recall_131K_40_S5.yaml
 ```
-See an example wandb run for both Hyena and Hyena-S5 here: [here](tbd). 
+See an example wandb run for both Hyena and Hyena-S5 here: [here](https://api.wandb.ai/links/jimmysmith1919/jful23a1). 
 
 
 ## WikiText-103
@@ -84,10 +84,10 @@ Hyena-S5
 python train.py -o output_dir_name -c configs/hyena_S5/wikitext_S5.yaml
 ```
 
-See an example wandb run for both Hyena and Hyena-S5 here: [here](tbd). 
-Hyena-S5 achieves 18.3 perplexity after 100K steps. For comparison, we have added our result to the Table from [Hyena](https://arxiv.org/abs/2302.10866):
-![](Tables/wikitext103.png)
+See an example wandb run for both Hyena and Hyena-S5 here: [here](https://api.wandb.ai/links/jimmysmith1919/ddfhke4q). 
+Hyena-S5 achieves 18.3 perplexity after 100K steps. For comparison, we have added our result to the table from [Hyena](https://arxiv.org/abs/2302.10866):
 
+![](Tables/wikitext103.png)
 
 
 Please reach out if you have any questions or feedback.
