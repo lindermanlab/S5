@@ -80,10 +80,10 @@ The configurations to run the LRA and 35-way Speech Commands experiments from th
 to run the LRA text (character level IMDB) experiment, run `./bin/run_experiments/run_lra_imdb.sh`. 
 To log with W&B, adjust the default `USE_WANDB, wandb_entity, wandb_project` arguments. 
 Note: the pendulum
-regression dataloading and experiments are on the separate pendulum branch.
+regression dataloading and experiments are on the separate [pendulum](https://github.com/lindermanlab/S5/tree/pendulum) branch.
 
 ## Language Modeling
-Check out the development branch, where we have started to add some preliminary language modeling tasks such 
+Check out the [development](https://github.com/lindermanlab/S5/tree/development) branch, where we have started to add some preliminary language modeling tasks such 
 as WikiText-103 and the synthetic in-context learning tasks from the [H3](https://arxiv.org/abs/2212.14052) and [Hyena](https://arxiv.org/abs/2302.10866) papers.
 We have found simply replacing Hyena's implicitly parameterized convolutions with S5 SSMs provides strong performance on these tasks.
 We hope to add larger scale experiments and plan to merge some of the new training infrastructure into the main branch soon!
