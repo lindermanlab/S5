@@ -36,7 +36,7 @@ You can run a small test (seq_len=20, vocab=10) that should run on a cpu by runn
 python train.py -o output_dir_name -c configs/hyena_S5/associative_recall_20_10_S5.yaml
 ```
 
-### Associative Recall, 131K, vocab=30
+### Associative Recall, seq_len=131K, vocab=30
 
 Hyena
 ```commandline
@@ -56,7 +56,7 @@ Hyena with implicit convolutions. For comparison we have added our result to the
 See an example wandb run for both Hyena and Hyena-S5 [here](https://api.wandb.ai/links/jimmysmith1919/15am8usz). 
 
 
-### Associative Recall, 131K, vocab=40
+### Associative Recall, seq_len=131K, vocab=40
 We also include runs for the vocab 40 setting. 
 
 Hyena
