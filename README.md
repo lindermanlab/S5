@@ -13,13 +13,13 @@ into the main branch.
 ## State Spaces for Language Modeling
 [H3](https://arxiv.org/abs/2212.14052) proposed combining data-controlled multiplicative gating with SSMs (in particular [S4D](https://arxiv.org/abs/2206.11893)) and 
 showed strong performance (when combined with a couple of attention layers in a hybrid model) on [OpenWebText](https://huggingface.co/datasets/openwebtext) , [WikiText-103](https://huggingface.co/datasets/wikitext) and the [Pile](https://pile.eleuther.ai/).
-[Hyena](https://arxiv.org/abs/2302.10866) generalized the notion of multiplicative gating and also replaced the SSMs of H3 with implicitly parameterized convolutions. This latter change was because using S4D for the convolution seemed to not perform as well on 
-challenging versions of synthetic in-context learning tasks (e.g. associative recall with 131K length sequences and vocab size of 30). Hyena showed strong attention-free performance and the ability to match perplexity and downstream performance of Transformers when trained on The Pile.  
+[Hyena](https://arxiv.org/abs/2302.10866) generalized the notion of multiplicative gating and also replaced the SSMs of H3 with implicitly parameterized convolutions. This latter change was motivated because using S4D for the convolution seemed to not perform as well on 
+challenging versions of synthetic in-context learning tasks (e.g. associative recall with 131K length sequences and vocab size of 30). Hyena showed strong attention-free performance and the ability to match perplexity and downstream performance of Transformers when trained on The Pile. The Hyena paper also shows interesting results suggesting a correlation between performance on the associative recall tasks and performance on The Pile.  
 A disadvantage of Hyena's implicit convolutions is that it loses the recurrent formulations (and fast autoregressive generation) that SSM methods such as S4/S5 provide.
 
 Are the implicitly parameterized convolutions necessary and are SSM methods not expressive enough? We were curious how S5 would do in this setting, so we simply replaced the Hyena implicit convolution filters with S5 SSMs. We will refer to this as Hyena-S5
 since we used the exact Hyena operator implementation (ported into JAX) and simply replaced the implicitly parameterized convolutions. However,
-we also note that when only order 2 operators are used (as we do here), this is essentially H3, but with S5 used instead of S4D (and a short convolution instead of H3's shift matrix).
+we also note that when only order 2 operators are used (as we do here), this is essentially H3, but with S5 used instead of S4D (and a short length 3 convolution instead of H3's shift matrix).
 
 Our results indicate that Hyena-S5 can solve the challenging associative recall in-context learning tasks and can also outperform Transformers on WikiText without any attention layers. We fully recognize that these are relatively small scale results these days, but it is at least a datapoint that S5 combined with 
 multiplicative gating can potentially be very effective.  We hope to scale up these and other ideas to larger datasets soon, stay tuned! 
