@@ -1,0 +1,7 @@
+numpy~=1.25.1
+jax~=0.4.14
+clearml~=1.12.0
+Pillow~=10.0.0
+S5~=0.1
+matplotlib~=3.7.2
+optax~=0.1.7
