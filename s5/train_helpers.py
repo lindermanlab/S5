@@ -132,11 +132,10 @@ def create_train_state(model_cls,
                            dummy_input, integration_timesteps,
                            )
     if batchnorm:
-        params = variables["params"].unfreeze()
+        params = variables["params"]
         batch_stats = variables["batch_stats"]
     else:
-        params = variables["params"].unfreeze()
-        # Note: `unfreeze()` is for using Optax.
+        params = variables["params"]
 
     if opt_config in ["standard"]:
         """This option applies weight decay to C, but B is kept with the
