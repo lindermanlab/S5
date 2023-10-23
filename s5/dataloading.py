@@ -386,12 +386,94 @@ def create_pmnist_classification_dataset(cache_dir: Union[str, Path] = DEFAULT_C
 	aux_loaders = {}
 	return trn_loader, val_loader, tst_loader, aux_loaders, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
 
+# Code with regards to the BCI dataset (no updates from meeting 10/16)
+import torch
+import torchvision
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+import math
+import timeit
+import itertools
+from scipy.io import loadmat
+from array import array
+
+
+class BCIDataset(Dataset):
+  def __init__(self, path):
+    # data loading
+    xy = loadmat(path, squeeze_me=True)
+
+    # Figure out padding, to create array to input
+    def stack_padding(it):
+      def resize(row, size):
+          new = np.array(row)
+          # This also restricts are array of interest.
+          new.resize(128, size)
+          return new
+
+      # find longest row length
+      row_length = max(it[:], key=len).__len__()
+      mat = np.array( [resize(row, row_length) for row in it] )
+      return mat
+
+    # Pytorch cannot create a tensor from strings so convert to ASCHII
+    self.setenceText = []
+    for sentence in xy['sentenceText'][:]:
+      self.setenceText.append(np.array(list(map(ord, sentence))))
+      # Assign each character to an integers, use the same punctation that nptl uess.
+      # Look up the dictionary that they're using to get the sentence phonemes. (At sometime)
+    self.setenceText = torch.from_numpy(np.array(self.setenceText))
+
+
+    self.tx1 = torch.from_numpy(stack_padding(np.array(xy['tx1'])))
+    self.spikePow = torch.from_numpy(stack_padding(np.array(xy['spikePow'])))
+    # padding of feature which is passed on (For each sentence there will be one length)
+    # 0 is valid and 1 is padded. Pad sentences
+    self.n_samples = xy['sentenceText'].shape[0]
+
+  # Output padding as aux_data
+  def __getitem__(self, index):
+    return [self.tx1[index], self.spikePow[index]], self.setenceText[index]
+
+  def __len__(self):
+    return self.n_samples
+
+# Example interface for making a loader.
+def BCIData_loader(cache_dir: str,
+				  bsz: int = 50,
+				  seed: int = 42,
+          shuffle: bool = True):
+
+  train_str = str(cache_dir) + "train/t12.2022.05.24.mat"
+  test_str = str(cache_dir) + "test/t12.2022.05.24.mat"
+
+  trainDataset = BCIDataset(path=train_str)
+  testDataset = BCIDataset(path=test_str)
+
+  trainloader = DataLoader(dataset=trainDataset, batch_size=bsz)
+  testloader = DataLoader(dataset=testDataset, batch_size=bsz, shuffle=False)
+  valloader = None
+
+  # Stack the tx1 and spikePow earlier
+  neuralData_train, labels_train = trainDataset[0]
+  neuralData_test, labels_test = testDataset[0]
+
+  # Not sure what these variables exactly code for.
+  N_CLASSES = len(labels_train) + len(labels_test)
+  # Would be one or the other
+  SEQ_LENGTH = max(len(tx1_train[0]),len(tx1_test[0]))
+  IN_DIM = 256  # Guessing
+  TRAIN_SIZE = len(labels_train)
+  aux_loader = {}
+
+  return trainloader, valloader, testloader, aux_loader, N_CLASSES, SEQ_LENGTH, IN_DIM, TRAIN_SIZE
 
 Datasets = {
 	# Other loaders.
 	"mnist-classification": create_mnist_classification_dataset,
 	"pmnist-classification": create_pmnist_classification_dataset,
 	"cifar-classification": create_cifar_classification_dataset,
+  "BCI-classification": BCIData_loader,
 
 	# LRA.
 	"imdb-classification": create_lra_imdb_classification_dataset,
