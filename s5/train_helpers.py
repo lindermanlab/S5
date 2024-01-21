@@ -135,10 +135,10 @@ def create_train_state(model_cls,
                            dummy_input, integration_timesteps,
                            )
     if batchnorm:
-        params = variables["params"].unfreeze()
+        params = variables["params"]
         batch_stats = variables["batch_stats"]
     else:
-        params = variables["params"].unfreeze()
+        params = variables["params"]
         # Note: `unfreeze()` is for using Optax.
 
     if opt_config in ["standard"]:
@@ -332,7 +332,7 @@ def prep_batch(batch: tuple,
     return full_inputs, targets.astype(float), integration_timesteps
 
 
-def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_params, cru=False):
+def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_params, cru=False, regression=False):
     """
     Training function for an epoch that loops over batches.
     """
@@ -354,7 +354,8 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
             integration_times,
             model,
             batchnorm,
-            cru=cru
+            cru=cru,
+            regression=regression,
         )
         blocked = loss.block_until_ready()  # Make it wait before proceeding.
         times.append(dt() - st)
@@ -384,7 +385,7 @@ def validate(state, model, testloader, seq_len, in_dim, batchnorm, step_rescale=
     return aveloss, aveaccu, sumtime
 
 
-@partial(jax.jit, static_argnums=(5, 6, 7))
+@partial(jax.jit, static_argnums=(5, 6, 7, 8))
 def train_step(state,
                rng,
                batch_inputs,
@@ -392,7 +393,8 @@ def train_step(state,
                batch_integration_timesteps,
                model,
                batchnorm,
-               cru=False
+               cru=False,
+               regression=False,
                ):
     """Performs a single training step given a batch of data"""
     def loss_fn(params):
@@ -414,6 +416,8 @@ def train_step(state,
 
         if cru:
             loss = GaussianNegLogLik(batch_labels, *preds, )
+        elif regression:
+            loss = np.mean((preds - batch_labels) ** 2)
         else:
             loss = np.mean(cross_entropy_loss(preds, batch_labels))
 
