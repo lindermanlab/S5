@@ -456,6 +456,7 @@ def eval_step(batch_inputs,
         accs = - mse(batch_labels, preds[0])  # Use the mean to compute the negative accuracy (higher is better).
     elif regression:
         losses = np.mean((preds - batch_labels) ** 2)
+        accs = - losses  # There is no accuracy in regression.
     else:
         losses = cross_entropy_loss(preds, batch_labels)
         accs = compute_accuracy(preds, batch_labels)
