@@ -367,14 +367,14 @@ def train_epoch(state, rng, model, trainloader, seq_len, in_dim, batchnorm, lr_p
     return state, np.mean(np.array(batch_losses)), step, np.sum(np.asarray(times))
 
 
-def validate(state, model, testloader, seq_len, in_dim, batchnorm, step_rescale=1.0, cru=False):
+def validate(state, model, testloader, seq_len, in_dim, batchnorm, step_rescale=1.0, cru=False, regression=False):
     """Validation function that loops over batches"""
     model = model(training=False, step_rescale=step_rescale)
     losses, accuracies, preds, times = np.array([]), np.array([]), np.array([]), np.array([])
     for batch_idx, batch in enumerate(tqdm(testloader)):
         inputs, labels, integration_timesteps = prep_batch(batch, seq_len, in_dim)
         st = dt()
-        loss, acc, pred = eval_step(inputs, labels, integration_timesteps, state, model, batchnorm, cru=cru)
+        loss, acc, pred = eval_step(inputs, labels, integration_timesteps, state, model, batchnorm, cru=cru, regression=regression)
         blocked = loss.block_until_ready()  # Make it wait before proceeding.
         times = np.append(times, dt() - st)
 
@@ -432,7 +432,7 @@ def train_step(state,
     return state, loss
 
 
-@partial(jax.jit, static_argnums=(4, 5, 6))
+@partial(jax.jit, static_argnums=(4, 5, 6, 7))
 def eval_step(batch_inputs,
               batch_labels,
               batch_integration_timesteps,
@@ -440,6 +440,7 @@ def eval_step(batch_inputs,
               model,
               batchnorm,
               cru=False,
+              regression=False,
               ):
     if batchnorm:
         preds = model.apply({"params": state.params, "batch_stats": state.batch_stats},
@@ -453,6 +454,8 @@ def eval_step(batch_inputs,
     if cru:
         losses = GaussianNegLogLik(batch_labels, *preds, )
         accs = - mse(batch_labels, preds[0])  # Use the mean to compute the negative accuracy (higher is better).
+    elif regression:
+        losses = np.mean((preds - batch_labels) ** 2)
     else:
         losses = cross_entropy_loss(preds, batch_labels)
         accs = compute_accuracy(preds, batch_labels)
