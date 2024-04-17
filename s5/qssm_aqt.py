@@ -14,42 +14,89 @@ from flax import linen as nn
 from jax.nn.initializers import lecun_normal, normal
 
 from .ssm_init import init_CV, init_VinvB, init_log_steps, trunc_standard_normal
-from .ssm import discretize_bilinear, discretize_zoh, binary_operator
+from .ssm import discretize_bilinear, discretize_zoh
 
 from dataclasses import dataclass
 from typing import Callable
-# import aqt.jax.v2.flax.aqt_flax as aqt
-import aqt.jax.v2.aqt_dot_general as aqt_dot_general
+import aqt.jax.v2.flax.aqt_flax as aqt
 import aqt.jax.v2.config as aqt_config
+
+
+def q_dot(config: aqt_config.DotGeneral):
+    """Return a quantized dot product function using the given aqt configuration."""
+    dot_general = aqt.AqtDotGeneral(config)
+
+    def _dot(a, b):
+        return dot_general(a, b, (((a.ndim - 1,), (0,)), ((), ())))
+    # return dot_general
+    return jax.jit(_dot)
+
+
+def q_hada(config: aqt_config.DotGeneral):
+    einsum = aqt.AqtEinsum(config)
+
+    def hadamard(a, b):
+        return einsum("i,i->i", a, b)
+    return jax.jit(hadamard)
 
 
 @dataclass
 class QuantizationConfig:
-    A_quantizer: aqt_config.DotGeneral  # not sure if useful since A only uses hadamard products
-    B_quantizer: aqt_config.DotGeneral
-    C_quantizer: aqt_config.DotGeneral
-    D_quantizer: aqt_config.DotGeneral  # D is only used in the SSM __call__() func
-    act_quantizer: aqt_config.DotGeneral  # TODO: is this needed?
+    a_config: aqt_config.DotGeneral
+    b_config: aqt_config.DotGeneral
+    c_config: aqt_config.DotGeneral
+    d_config: aqt_config.DotGeneral
 
 
-def quant_dot(general_dot: aqt_config.DotGeneral):
-    def _dot(a, b):
-        return general_dot(a, b, (((a.ndim - 1,), (0,)), ((), ())))
-    return jax.jit(_dot)
+@dataclass
+class QuantizedOperations:
+    """Quantized operations for S5.
+
+    Attributes:
+        a_dot: quantized dot product operation for A matrix.
+        a_had: quantized hadamard product operation for A matrix.
+        b_dot: quantized dot product operation for B matrix.
+        c_dot: quantized dot product operation for C matrix.
+        d_had: quantized hadamard product operation for D matrix.
+    """
+    a_dot: Callable
+    a_had: Callable
+    b_dot: Callable
+    c_dot: Callable
+    d_had: Callable
+
+    def __init__(self, q_config: QuantizationConfig):
+        self.a_dot = q_dot(q_config.a_config)
+        self.a_had = q_hada(q_config.a_config)
+        self.b_dot = q_dot(q_config.b_config)
+        self.c_dot = q_dot(q_config.c_config)
+        self.d_had = q_hada(q_config.d_config)
 
 
-def quant_hadamard(general_dot: aqt_config.DotGeneral):
-    """Create a quantized haradamard product function using the given general_dot function."""
-    def vec_prod(a, b):
-        return aqt_dot_general.einsum("i,i->i", a, b, general_dot)
-    return jax.jit(vec_prod)
+# Parallel scan operations
+@jax.vmap
+def quant_binary_operator(q_i, q_j, qdot_fn, qhad_fn):
+    """ Binary operator for parallel scan of linear recurrence. Assumes a diagonal matrix A.
+        Args:
+            q_i: tuple containing A_i and Bu_i at position i       (P,), (P,)
+            q_j: tuple containing A_j and Bu_j at position j       (P,), (P,)
+        Returns:
+            new element ( A_out, Bu_out )
+    """
+    A_i, b_i = q_i
+    A_j, b_j = q_j
+
+    def qadd_fn(x, y):
+        """Add two quantized vectors, using the quantized dot function."""
+        return qdot_fn(np.array([x, y]), np.ones((2,)))
+
+    # return A_j * A_i, A_j * b_i + b_j
+    return qhad_fn(A_j, A_i), qadd_fn(qhad_fn(A_j, b_i), b_j)
 
 
-def build_apply_ssm(quant_config: QuantizationConfig) -> Callable:
+def build_apply_ssm(q_ops: QuantizedOperations) -> Callable:
 
-    b_matmul = quant_dot(quant_config.B_quantizer)
-    c_matmul = quant_dot(quant_config.C_quantizer)
-    a_hadamard = quant_hadamard(quant_config.A_quantizer)
+    q_bin_op = partial(quant_binary_operator, qdot_fn=q_ops.a_dot, qhad_fn=q_ops.a_had)
 
     def _apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectional):
         """ Compute the LxH output of discretized SSM given an LxH input.
@@ -64,22 +111,22 @@ def build_apply_ssm(quant_config: QuantizationConfig) -> Callable:
             Returns:
                 ys (float32): the SSM outputs (S5 layer preactivations)      (L, H)
         """
-        Lambda_elements = a_hadamard(Lambda_bar, np.ones((input_sequence.shape[0],
-                                                          Lambda_bar.shape[0])))
-        Bu_elements = jax.vmap(lambda u: b_matmul(B_bar, u))(input_sequence)
+        Lambda_elements = Lambda_bar * np.ones((input_sequence.shape[0],
+                                                Lambda_bar.shape[0]))
+        Bu_elements = jax.vmap(lambda u: q_ops.b_dot(B_bar, u))(input_sequence)
 
-        _, xs = jax.lax.associative_scan(binary_operator, (Lambda_elements, Bu_elements))
+        _, xs = jax.lax.associative_scan(q_bin_op, (Lambda_elements, Bu_elements))
 
         if bidirectional:
-            _, xs2 = jax.lax.associative_scan(binary_operator,
+            _, xs2 = jax.lax.associative_scan(q_bin_op,
                                               (Lambda_elements, Bu_elements),
                                               reverse=True)
             xs = np.concatenate((xs, xs2), axis=-1)
 
         if conj_sym:
-            return jax.vmap(lambda x: 2*c_matmul(C_tilde, x).real)(xs)
+            return jax.vmap(lambda x: 2*q_ops.c_dot(C_tilde, x).real)(xs)
         else:
-            return jax.vmap(lambda x: c_matmul(C_tilde, x).real)(xs)
+            return jax.vmap(lambda x: q_ops.c_dot(C_tilde, x).real)(xs)
 
     return jax.jit(_apply_ssm)
 
@@ -139,7 +186,8 @@ class S5SSM(nn.Module):
            the SSM is applied to a sequence
         """
 
-        self.apply_ssm = build_apply_ssm(self.q_config)  # might need fixed/adjusted
+        self.q_ops = QuantizedOperations(self.q_config)
+        self.apply_ssm = build_apply_ssm(self.q_ops)  # might need fixed/adjusted
 
         if self.conj_sym:
             # Need to account for case where we actually sample real B and C, and then multiply
@@ -244,8 +292,8 @@ class S5SSM(nn.Module):
 
         # Add feedthrough matrix output Du;
         # self.D * u can be replaced with the quant vector product einsum now.
-        Du = jax.vmap(lambda u: self.D * u)(input_sequence)
-        return ys + Du
+        Du = jax.vmap(lambda u: self.q_ops.d_had(self.D, u))(input_sequence)
+        return ys + Du  # TODO: make sure this is also quantized
 
 
 def init_S5SSM(H,
