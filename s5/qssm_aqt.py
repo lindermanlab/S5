@@ -156,29 +156,30 @@ class S5SSM(nn.Module):
             Lambda_im_init (complex64): Imag part of init diag state matrix  (P,)
             V           (complex64): Eigenvectors used for init           (P,P)
             Vinv        (complex64): Inverse eigenvectors used for init   (P,P)
-            H           (int32):     Number of features of input seq 
+            H           (int32):     Number of features of input seq
             P           (int32):     state size
             C_init      (string):    Specifies How C is initialized
-                         Options: [trunc_standard_normal: sample from truncated standard normal 
+                         Options: [trunc_standard_normal: sample from truncated standard normal
                                                         and then multiply by V, i.e. C_tilde=CV.
                                    lecun_normal: sample from Lecun_normal and then multiply by V.
-                                   complex_normal: directly sample a complex valued output matrix 
+                                   complex_normal: directly sample a complex valued output matrix
                                                     from standard normal, does not multiply by V]
             conj_sym    (bool):    Whether conjugate symmetry is enforced
             clip_eigs   (bool):    Whether to enforce left-half plane condition, i.e.
-                                   constrain real part of eigenvalues to be negative. 
-                                   True recommended for autoregressive task/unbounded sequence lengths
-                                   Discussed in https://arxiv.org/pdf/2206.11893.pdf.
+                                   constrain real part of eigenvalues to be negative.
+                                   True recommended for autoregressive task/unbounded sequence
+                                   lengths. Discussed in https://arxiv.org/pdf/2206.11893.pdf.
             bidirectional (bool):  Whether model is bidirectional, if True, uses two C matrices
-            discretization: (string) Specifies discretization method 
+            discretization: (string) Specifies discretization method
                              options: [zoh: zero-order hold method,
                                        bilinear: bilinear transform]
-            dt_min:      (float32): minimum value to draw timescale values from when 
+            dt_min:      (float32): minimum value to draw timescale values from when
                                     initializing log_step
-            dt_max:      (float32): maximum value to draw timescale values from when 
+            dt_max:      (float32): maximum value to draw timescale values from when
                                     initializing log_step
-            step_rescale:  (float32): allows for uniformly changing the timescale parameter, e.g. after training 
-                                    on a different resolution for the speech commands benchmark
+            step_rescale:  (float32): allows for uniformly changing the timescale parameter, e.g.
+                                    after training on a different resolution for the speech
+                                    commands benchmark
     """
 
     def setup(self):
@@ -272,7 +273,7 @@ class S5SSM(nn.Module):
         elif self.discretization in ["bilinear"]:
             self.Lambda_bar, self.B_bar = discretize_bilinear(self.Lambda, B_tilde, step)
         else:
-            raise NotImplementedError("Discretization method {} not implemented".format(self.discretization))
+            raise NotImplementedError(f"Discretization method {self.discretization}")
 
     def __call__(self, input_sequence):
         """
@@ -284,11 +285,11 @@ class S5SSM(nn.Module):
             output sequence (float32): (L, H)
         """
         ys = self.apply_ssm(self.Lambda_bar,
-                       self.B_bar,
-                       self.C_tilde,
-                       input_sequence,
-                       self.conj_sym,
-                       self.bidirectional)
+                            self.B_bar,
+                            self.C_tilde,
+                            input_sequence,
+                            self.conj_sym,
+                            self.bidirectional)
 
         # Add feedthrough matrix output Du;
         # self.D * u can be replaced with the quant vector product einsum now.
