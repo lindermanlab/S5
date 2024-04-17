@@ -4,8 +4,7 @@ Quantized version of the S5 layer implementation from lindermanlab/S5.
 Using the `aqt` JAX library for quantization.
 
 TODOs:
-- make sure that D is using quantized operations
-- quantize the addition operation within the binary operator... (quant_hadamard)
+- test this
 """
 from functools import partial
 import jax
