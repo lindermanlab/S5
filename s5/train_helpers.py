@@ -4,6 +4,7 @@ import jax.numpy as np
 from jax.nn import one_hot
 from tqdm import tqdm
 from flax.training import train_state
+from flax.core.frozen_dict import unfreeze
 import optax
 from typing import Any, Tuple
 
@@ -132,10 +133,12 @@ def create_train_state(model_cls,
                            dummy_input, integration_timesteps,
                            )
     if batchnorm:
-        params = variables["params"].unfreeze()
+        # params = variables["params"].unfreeze()
+        params = unfreeze(variables["params"])
         batch_stats = variables["batch_stats"]
     else:
-        params = variables["params"].unfreeze()
+        # params = variables["params"].unfreeze()
+        params = unfreeze(variables["params"])
         # Note: `unfreeze()` is for using Optax.
 
     if opt_config in ["standard"]:
