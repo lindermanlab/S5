@@ -119,7 +119,7 @@ def build_apply_ssm(q_ops: QuantizedOperations) -> Callable:
     return jax.jit(_apply_ssm)
 
 
-class S5SSM(nn.Module):
+class qS5SSM(nn.Module):
     Lambda_re_init: np.DeviceArray
     Lambda_im_init: np.DeviceArray
     V: np.DeviceArray
@@ -285,7 +285,7 @@ class S5SSM(nn.Module):
         return ys + Du  # TODO: make sure this is also quantized
 
 
-def init_S5SSM(H,
+def init_qS5SSM(H,
                P,
                Lambda_re_init,
                Lambda_im_init,
@@ -297,11 +297,12 @@ def init_S5SSM(H,
                dt_max,
                conj_sym,
                clip_eigs,
-               bidirectional
+               bidirectional,
+               q_config,
                ):
     """Convenience function that will be used to initialize the SSM.
        Same arguments as defined in S5SSM above."""
-    return partial(S5SSM,
+    return partial(qS5SSM,
                    H=H,
                    P=P,
                    Lambda_re_init=Lambda_re_init,
@@ -314,4 +315,5 @@ def init_S5SSM(H,
                    dt_max=dt_max,
                    conj_sym=conj_sym,
                    clip_eigs=clip_eigs,
-                   bidirectional=bidirectional)
+                   bidirectional=bidirectional,
+                   q_config=q_config)
