@@ -14,7 +14,7 @@ from jax.nn.initializers import lecun_normal, normal
 
 from .ssm_init import init_CV, init_VinvB, init_log_steps, trunc_standard_normal
 from .ssm import discretize_bilinear, discretize_zoh
-from utils.quantization import q_dot_maybe, q_had_maybe
+from .utils.quantization import q_dot_maybe, q_had_maybe
 
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -62,7 +62,6 @@ class QuantizedOperations:
 
 
 # Parallel scan operations
-@jax.vmap
 def quant_binary_operator(q_i, q_j, qdot_fn, qhad_fn):
     """ Binary operator for parallel scan of linear recurrence. Assumes a diagonal matrix A.
         Args:
@@ -79,12 +78,14 @@ def quant_binary_operator(q_i, q_j, qdot_fn, qhad_fn):
         return qdot_fn(np.array([x, y]), np.ones((2,)))
 
     # return A_j * A_i, A_j * b_i + b_j
-    return qhad_fn(A_j, A_i), qadd_fn(qhad_fn(A_j, b_i), b_j)
+    # Bu_out = qadd_fn(qhad_fn(A_j, b_i), b_j)
+    Bu_out = qhad_fn(A_j, b_i) + b_j  # TODO: work out if this is okay
+    return qhad_fn(A_j, A_i), Bu_out
 
 
 def build_apply_ssm(q_ops: QuantizedOperations) -> Callable:
 
-    q_bin_op = partial(quant_binary_operator, qdot_fn=q_ops.a_dot, qhad_fn=q_ops.a_had)
+    q_bin_op = jax.vmap(partial(quant_binary_operator, qdot_fn=q_ops.a_dot, qhad_fn=q_ops.a_had))
 
     def _apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectional):
         """ Compute the LxH output of discretized SSM given an LxH input.
@@ -116,14 +117,14 @@ def build_apply_ssm(q_ops: QuantizedOperations) -> Callable:
         else:
             return jax.vmap(lambda x: q_ops.c_dot(C_tilde, x).real)(xs)
 
-    return jax.jit(_apply_ssm)
+    return _apply_ssm  # NOTE: jitting this function breaks the bidirectional argument
 
 
 class qS5SSM(nn.Module):
-    Lambda_re_init: np.DeviceArray
-    Lambda_im_init: np.DeviceArray
-    V: np.DeviceArray
-    Vinv: np.DeviceArray
+    Lambda_re_init: jax.Array
+    Lambda_im_init: jax.Array
+    V: jax.Array
+    Vinv: jax.Array
 
     H: int
     P: int
@@ -131,11 +132,11 @@ class qS5SSM(nn.Module):
     discretization: str
     dt_min: float
     dt_max: float
+    q_config: QuantizationConfig
     conj_sym: bool = True
     clip_eigs: bool = False
     bidirectional: bool = False
     step_rescale: float = 1.0
-    q_config: QuantizationConfig
 
     """ The S5 SSM
         Args:
