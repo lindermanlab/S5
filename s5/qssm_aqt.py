@@ -14,49 +14,38 @@ from jax.nn.initializers import lecun_normal, normal
 
 from .ssm_init import init_CV, init_VinvB, init_log_steps, trunc_standard_normal
 from .ssm import discretize_bilinear, discretize_zoh
+from utils.quantization import q_dot_maybe, q_had_maybe
 
 from dataclasses import dataclass
-from typing import Callable
-import aqt.jax.v2.flax.aqt_flax as aqt
-import aqt.jax.v2.config as aqt_config
-
-
-def q_dot(config: aqt_config.DotGeneral):
-    """Return a quantized dot product function using the given aqt configuration."""
-    dot_general = aqt.AqtDotGeneral(config)
-
-    def _dot(a, b):
-        return dot_general(a, b, (((a.ndim - 1,), (0,)), ((), ())))
-    # return dot_general
-    return jax.jit(_dot)
-
-
-def q_hada(config: aqt_config.DotGeneral):
-    einsum = aqt.AqtEinsum(config)
-
-    def hadamard(a, b):
-        return einsum("i,i->i", a, b)
-    return jax.jit(hadamard)
+from typing import Callable, Optional
 
 
 @dataclass
 class QuantizationConfig:
-    a_config: aqt_config.DotGeneral
-    b_config: aqt_config.DotGeneral
-    c_config: aqt_config.DotGeneral
-    d_config: aqt_config.DotGeneral
+    """Quantization configuration for S5.
+
+    Attributes:
+        a_precision: integer precision for A matrix operations.
+        b_precision: integer precision for B matrix operations.
+        c_precision: integer precision for C matrix operations.
+        d_precision: integer precision for D matrix operations.
+    """
+    a_precision: Optional[int]
+    b_precision: Optional[int]
+    c_precision: Optional[int]
+    d_precision: Optional[int]
 
 
 @dataclass
 class QuantizedOperations:
-    """Quantized operations for S5.
+    """(Possibly quantized) operations for S5.
 
     Attributes:
-        a_dot: quantized dot product operation for A matrix.
-        a_had: quantized hadamard product operation for A matrix.
-        b_dot: quantized dot product operation for B matrix.
-        c_dot: quantized dot product operation for C matrix.
-        d_had: quantized hadamard product operation for D matrix.
+        a_dot: (possibly quantized) dot product operation for A matrix.
+        a_had: (possibly quantized) hadamard product operation for A matrix.
+        b_dot: (possibly quantized) dot product operation for B matrix.
+        c_dot: (possibly quantized) dot product operation for C matrix.
+        d_had: (possibly quantized) hadamard product operation for D matrix.
     """
     a_dot: Callable
     a_had: Callable
@@ -65,11 +54,11 @@ class QuantizedOperations:
     d_had: Callable
 
     def __init__(self, q_config: QuantizationConfig):
-        self.a_dot = q_dot(q_config.a_config)
-        self.a_had = q_hada(q_config.a_config)
-        self.b_dot = q_dot(q_config.b_config)
-        self.c_dot = q_dot(q_config.c_config)
-        self.d_had = q_hada(q_config.d_config)
+        self.a_dot = q_dot_maybe(q_config.a_precision)
+        self.a_had = q_had_maybe(q_config.a_precision)
+        self.b_dot = q_dot_maybe(q_config.b_precision)
+        self.c_dot = q_dot_maybe(q_config.c_precision)
+        self.d_had = q_had_maybe(q_config.d_precision)
 
 
 # Parallel scan operations
@@ -146,8 +135,7 @@ class S5SSM(nn.Module):
     clip_eigs: bool = False
     bidirectional: bool = False
     step_rescale: float = 1.0
-
-    q_config: QuantizationConfig  # might need to be fixed/adjusted
+    q_config: QuantizationConfig
 
     """ The S5 SSM
         Args:
@@ -179,6 +167,7 @@ class S5SSM(nn.Module):
             step_rescale:  (float32): allows for uniformly changing the timescale parameter, e.g.
                                     after training on a different resolution for the speech
                                     commands benchmark
+            q_config:    (QuantizationConfig): Configuration for quantization.
     """
 
     def setup(self):
@@ -187,7 +176,7 @@ class S5SSM(nn.Module):
         """
 
         self.q_ops = QuantizedOperations(self.q_config)
-        self.apply_ssm = build_apply_ssm(self.q_ops)  # might need fixed/adjusted
+        self.apply_ssm = build_apply_ssm(self.q_ops)
 
         if self.conj_sym:
             # Need to account for case where we actually sample real B and C, and then multiply
