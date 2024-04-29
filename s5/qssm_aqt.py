@@ -66,18 +66,25 @@ def quant_binary_operator(q_i, q_j, qhad_fn):
             q_j: tuple containing A_j and Bu_j at position j       (P,), (P,)
         Returns:
             new element ( A_out, Bu_out )
+    TODO: work out if the un-quantized addition is okay.
     """
     A_i, b_i = q_i
     A_j, b_j = q_j
-    # return A_j * A_i, A_j * b_i + b_j
-    # Bu_out = qadd_fn(qhad_fn(A_j, b_i), b_j)
-    Bu_out = qhad_fn(A_j, b_i) + b_j  # TODO: work out if this is okay
-    return qhad_fn(A_j, A_i), Bu_out
+    # # return A_j * A_i, A_j * b_i + b_j
+    # A_out = qhad_fn(A_j, A_i)
+    # Bu_out = qhad_fn(A_j, b_i) + b_j
+    A_out_re = qhad_fn(A_j.real, A_i.real) - qhad_fn(A_j.imag, A_i.imag)
+    A_out_im = qhad_fn(A_j.real, A_i.imag) + qhad_fn(A_j.imag, A_i.real)
+    A_out = A_out_re + 1j * A_out_im
+    Bu_out_re = qhad_fn(A_j.real, b_i.real) - qhad_fn(A_j.imag, b_i.imag)
+    Bu_out_im = qhad_fn(A_j.real, b_i.imag) + qhad_fn(A_j.imag, b_i.real)
+    Bu_out = Bu_out_re + 1j * Bu_out_im + b_j
+    return A_out, Bu_out
 
 
 def build_apply_ssm(q_ops: QuantizedOperations) -> Callable:
 
-    q_bin_op = jax.vmap(partial(quant_binary_operator, qhad_fn=q_ops.a_had))
+    q_bin_op = jax.vmap(jax.jit(partial(quant_binary_operator, qhad_fn=q_ops.a_had)))
 
     def _apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectional):
         """ Compute the LxH output of discretized SSM given an LxH input.
@@ -91,6 +98,10 @@ def build_apply_ssm(q_ops: QuantizedOperations) -> Callable:
                                       Note for this case C_tilde will have 2P cols
             Returns:
                 ys (float32): the SSM outputs (S5 layer preactivations)      (L, H)
+
+        TODO:
+        - real/imag separation below makes training ~2x slower (quantizing one matrix only)
+          - might also mess with quantization (un-quantized addition of real and imag parts)
         """
         Lambda_elements = Lambda_bar * np.ones((input_sequence.shape[0],
                                                 Lambda_bar.shape[0]))
@@ -99,9 +110,8 @@ def build_apply_ssm(q_ops: QuantizedOperations) -> Callable:
             re = q_ops.b_dot(B_bar.real, u.real) - q_ops.b_dot(B_bar.imag, u.imag)
             im = q_ops.b_dot(B_bar.real, u.imag) + q_ops.b_dot(B_bar.imag, u.real)
             return re + 1j * im
-            # return q_ops.b_dot(B_bar, u)
 
-        Bu_elements = jax.vmap(b_dot)(input_sequence)
+        Bu_elements = jax.vmap(jax.jit(b_dot))(input_sequence)
 
         _, xs = jax.lax.associative_scan(q_bin_op, (Lambda_elements, Bu_elements))
 
@@ -117,8 +127,7 @@ def build_apply_ssm(q_ops: QuantizedOperations) -> Callable:
         if conj_sym:
             return jax.vmap(lambda x: 2*c_dot_real(x))(xs)
         else:
-
-            return jax.vmap(c_dot_real)(xs)
+            return jax.vmap(jax.jit(c_dot_real))(xs)
 
     return _apply_ssm  # NOTE: jitting this function breaks the bidirectional argument
 
