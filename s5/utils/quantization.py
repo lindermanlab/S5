@@ -31,7 +31,7 @@ def q_dot_maybe(precision: Optional[int]):
     if precision is None:
         return np.dot
     else:
-        dot_general = aqt_config.fully_quantized(fwd_bits=precision, bwd_bits=precision)
+        dot_general = fully_quantized(fwd_bits=precision, bwd_bits=precision)
         return quant_dot_for_dot(dot_general)
 
 
@@ -39,7 +39,7 @@ def q_had_maybe(precision: Optional[int]):
     if precision is None:
         return np.multiply
     else:
-        dot_general = aqt_config.fully_quantized(fwd_bits=precision, bwd_bits=precision)
+        dot_general = fully_quantized(fwd_bits=precision, bwd_bits=precision)
         return quant_dot_for_hadamard(dot_general)
 
 
