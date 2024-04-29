@@ -94,7 +94,14 @@ def build_apply_ssm(q_ops: QuantizedOperations) -> Callable:
         """
         Lambda_elements = Lambda_bar * np.ones((input_sequence.shape[0],
                                                 Lambda_bar.shape[0]))
-        Bu_elements = jax.vmap(lambda u: q_ops.b_dot(B_bar, u))(input_sequence)
+
+        def b_dot(u):
+            re = q_ops.b_dot(B_bar.real, u.real) - q_ops.b_dot(B_bar.imag, u.imag)
+            im = q_ops.b_dot(B_bar.real, u.imag) + q_ops.b_dot(B_bar.imag, u.real)
+            return re + 1j * im
+            # return q_ops.b_dot(B_bar, u)
+
+        Bu_elements = jax.vmap(b_dot)(input_sequence)
 
         _, xs = jax.lax.associative_scan(q_bin_op, (Lambda_elements, Bu_elements))
 
@@ -104,10 +111,14 @@ def build_apply_ssm(q_ops: QuantizedOperations) -> Callable:
                                               reverse=True)
             xs = np.concatenate((xs, xs2), axis=-1)
 
+        def c_dot_real(x):
+            return q_ops.c_dot(C_tilde.real, x.real) - q_ops.c_dot(C_tilde.imag, x.imag)
+
         if conj_sym:
-            return jax.vmap(lambda x: 2*q_ops.c_dot(C_tilde, x).real)(xs)
+            return jax.vmap(lambda x: 2*c_dot_real(x))(xs)
         else:
-            return jax.vmap(lambda x: q_ops.c_dot(C_tilde, x).real)(xs)
+
+            return jax.vmap(c_dot_real)(xs)
 
     return _apply_ssm  # NOTE: jitting this function breaks the bidirectional argument
 
