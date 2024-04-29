@@ -118,7 +118,10 @@ def train(args):
     print("Vinv.shape={}".format(Vinv.shape))
 
     q_config = QuantizationConfig(
-        a_precision=None, b_precision=None, c_precision=None, d_precision=8
+        a_precision=args.a_bits,
+        b_precision=args.b_bits,
+        c_precision=args.c_bits,
+        d_precision=args.d_bits,
     )
     # ssm_init_fn = init_S5SSM(H=args.d_model,
     ssm_init_fn = init_qS5SSM(
