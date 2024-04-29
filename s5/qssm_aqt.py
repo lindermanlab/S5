@@ -41,20 +41,17 @@ class QuantizedOperations:
     """(Possibly quantized) operations for S5.
 
     Attributes:
-        a_dot: (possibly quantized) dot product operation for A matrix.
         a_had: (possibly quantized) hadamard product operation for A matrix.
         b_dot: (possibly quantized) dot product operation for B matrix.
         c_dot: (possibly quantized) dot product operation for C matrix.
         d_had: (possibly quantized) hadamard product operation for D matrix.
     """
-    a_dot: Callable
     a_had: Callable
     b_dot: Callable
     c_dot: Callable
     d_had: Callable
 
     def __init__(self, q_config: QuantizationConfig):
-        self.a_dot = q_dot_maybe(q_config.a_precision)
         self.a_had = q_had_maybe(q_config.a_precision)
         self.b_dot = q_dot_maybe(q_config.b_precision)
         self.c_dot = q_dot_maybe(q_config.c_precision)
@@ -62,7 +59,7 @@ class QuantizedOperations:
 
 
 # Parallel scan operations
-def quant_binary_operator(q_i, q_j, qdot_fn, qhad_fn):
+def quant_binary_operator(q_i, q_j, qhad_fn):
     """ Binary operator for parallel scan of linear recurrence. Assumes a diagonal matrix A.
         Args:
             q_i: tuple containing A_i and Bu_i at position i       (P,), (P,)
@@ -72,11 +69,6 @@ def quant_binary_operator(q_i, q_j, qdot_fn, qhad_fn):
     """
     A_i, b_i = q_i
     A_j, b_j = q_j
-
-    def qadd_fn(x, y):
-        """Add two quantized vectors, using the quantized dot function."""
-        return qdot_fn(np.array([x, y]), np.ones((2,)))
-
     # return A_j * A_i, A_j * b_i + b_j
     # Bu_out = qadd_fn(qhad_fn(A_j, b_i), b_j)
     Bu_out = qhad_fn(A_j, b_i) + b_j  # TODO: work out if this is okay
@@ -85,7 +77,7 @@ def quant_binary_operator(q_i, q_j, qdot_fn, qhad_fn):
 
 def build_apply_ssm(q_ops: QuantizedOperations) -> Callable:
 
-    q_bin_op = jax.vmap(partial(quant_binary_operator, qdot_fn=q_ops.a_dot, qhad_fn=q_ops.a_had))
+    q_bin_op = jax.vmap(partial(quant_binary_operator, qhad_fn=q_ops.a_had))
 
     def _apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym, bidirectional):
         """ Compute the LxH output of discretized SSM given an LxH input.
