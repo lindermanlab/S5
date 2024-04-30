@@ -58,6 +58,13 @@ if __name__ == "__main__":
         help="quantization for D matrix (if None, use full precision)",
     )
 
+    parser.add_argument(
+        "--non_ssm_bits",
+        type=int,
+        default=None,
+        help="quantization for non-SSM operations (if None, use full precision)",
+    )
+
     # Model Parameters
     parser.add_argument(
         "--n_layers", type=int, default=6, help="Number of layers in the network"

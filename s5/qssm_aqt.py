@@ -29,11 +29,13 @@ class QuantizationConfig:
         b_precision: integer precision for B matrix operations.
         c_precision: integer precision for C matrix operations.
         d_precision: integer precision for D matrix operations.
+        non_ssm_precision: integer precision for all layer operations outside of the SSMs (Dense encode/decode layers)
     """
     a_precision: Optional[int]
     b_precision: Optional[int]
     c_precision: Optional[int]
     d_precision: Optional[int]
+    non_ssm_precision: Optional[int]
 
 
 @dataclass
@@ -50,12 +52,14 @@ class QuantizedOperations:
     b_dot: Callable
     c_dot: Callable
     d_had: Callable
+    non_ssm_dot: Callable
 
     def __init__(self, q_config: QuantizationConfig):
         self.a_had = q_had_maybe(q_config.a_precision)
         self.b_dot = q_dot_maybe(q_config.b_precision)
         self.c_dot = q_dot_maybe(q_config.c_precision)
         self.d_had = q_had_maybe(q_config.d_precision)
+        self.non_ssm_dot = q_dot_maybe(q_config.non_ssm_precision)
 
 
 # Parallel scan operations
