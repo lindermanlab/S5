@@ -10,6 +10,9 @@ if __name__ == "__main__":
         "--USE_WANDB", type=str2bool, default=False, help="log with wandb?"
     )
     parser.add_argument(
+        "--wandb_apikey", type=str, default=None, help="wandb api key"
+    )
+    parser.add_argument(
         "--wandb_project", type=str, default=None, help="wandb project name"
     )
     parser.add_argument(

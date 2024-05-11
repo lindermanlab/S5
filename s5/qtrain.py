@@ -25,6 +25,9 @@ def train(args):
     Main function to train over a certain number of epochs
     """
 
+    if args.wandb_apikey is not None:
+        wandb.login(key=args.wandb_apikey)
+
     best_test_loss = 100000000
     best_test_acc = -10000.0
 
