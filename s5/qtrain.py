@@ -14,8 +14,7 @@ from .train_helpers import (
     validate,
 )
 from .dataloading import Datasets
-from .seq_model import BatchClassificationModel, RetrievalModel
-#from .seq_model import QBatchClassificationModel, QRetrievalModel
+from .qseq_model import QBatchClassificationModel, QRetrievalModel
 from .qssm_aqt import init_qS5SSM, QuantizationConfig
 from .ssm_init import make_DPLR_HiPPO
 
@@ -127,7 +126,8 @@ def train(args):
         c_precision=args.c_bits,
         d_precision=args.d_bits,
         non_ssm_precision=args.non_ssm_bits,
-        activation_precision=args.act_bits,
+        ssm_act_precision=args.ssm_act_bits,
+        non_ssm_act_precision=args.non_ssm_act_bits,
     )
     # ssm_init_fn = init_S5SSM(H=args.d_model,
     ssm_init_fn = init_qS5SSM(
@@ -151,7 +151,7 @@ def train(args):
         # Use retrieval head for AAN task
         print("Using Retrieval head for {} task".format(args.dataset))
         model_cls = partial(
-            RetrievalModel,
+            QRetrievalModel,
             ssm=ssm_init_fn,
             d_output=n_classes,
             d_model=args.d_model,
@@ -162,11 +162,12 @@ def train(args):
             prenorm=args.prenorm,
             batchnorm=args.batchnorm,
             bn_momentum=args.bn_momentum,
+            q_config=q_config,
         )
 
     else:
         model_cls = partial(
-            BatchClassificationModel,
+            QBatchClassificationModel,
             ssm=ssm_init_fn,
             d_output=n_classes,
             d_model=args.d_model,
@@ -178,6 +179,7 @@ def train(args):
             prenorm=args.prenorm,
             batchnorm=args.batchnorm,
             bn_momentum=args.bn_momentum,
+            q_config=q_config,
         )
 
     # initialize training state

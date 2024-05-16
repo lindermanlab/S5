@@ -27,6 +27,7 @@ class QStackedEncoderModel(nn.Module):
     ssm: nn.Module
     d_model: int
     n_layers: int
+    q_config: QuantizationConfig
     activation: str = "gelu"
     dropout: float = 0.0
     training: bool = True
@@ -34,14 +35,13 @@ class QStackedEncoderModel(nn.Module):
     batchnorm: bool = False
     bn_momentum: float = 0.9
     step_rescale: float = 1.0
-    q_config: QuantizationConfig = QuantizationConfig()
 
     def setup(self):
         """
         Initializes a linear encoder and the stack of S5 layers.
         """
         # NOTE: nn.Dense calls dot_general(activation, weights)
-        dot = q_dot_maybe(self.q_config.activation_precision, self.q_config.non_ssm_precision)
+        dot = q_dot_maybe(self.q_config.non_ssm_act_precision, self.q_config.non_ssm_precision)
         self.encoder = nn.Dense(self.d_model, dot_general=dot)
         self.layers = [
             QSequenceLayer(
@@ -124,6 +124,7 @@ class QClassificationModel(nn.Module):
     d_model: int
     n_layers: int
     padded: bool
+    q_config: QuantizationConfig
     activation: str = "gelu"
     dropout: float = 0.2
     training: bool = True
@@ -132,7 +133,6 @@ class QClassificationModel(nn.Module):
     batchnorm: bool = False
     bn_momentum: float = 0.9
     step_rescale: float = 1.0
-    q_config: QuantizationConfig = QuantizationConfig()
 
     def setup(self):
         """
@@ -152,7 +152,7 @@ class QClassificationModel(nn.Module):
                             q_config=self.q_config
                                         )
         # NOTE: nn.Dense calls dot_general(activation, weights)
-        dot = q_dot_maybe(self.q_config.activation_precision, self.q_config.non_ssm_precision)
+        dot = q_dot_maybe(self.q_config.non_ssm_act_precision, self.q_config.non_ssm_precision)
         self.decoder = nn.Dense(self.d_output, dot_general=dot)
 
     def __call__(self, x, integration_timesteps):
@@ -212,14 +212,14 @@ class QRetrievalDecoder(nn.Module):
     """
     d_model: int
     d_output: int
-    q_config: QuantizationConfig = QuantizationConfig()
+    q_config: QuantizationConfig
 
     def setup(self):
         """
         Initializes 2 dense layers to be used for the MLP.
         """
         # NOTE: nn.Dense calls dot_general(activation, weights)
-        dot = q_dot_maybe(self.q_config.activation_precision, self.q_config.non_ssm_precision)
+        dot = q_dot_maybe(self.q_config.non_ssm_act_precision, self.q_config.non_ssm_precision)
         self.layer1 = nn.Dense(self.d_model, dot_general=dot)
         self.layer2 = nn.Dense(self.d_output, dot_general=dot)
 
@@ -264,6 +264,7 @@ class QRetrievalModel(nn.Module):
     d_model: int
     n_layers: int
     padded: bool
+    q_config: QuantizationConfig
     activation: str = "gelu"
     dropout: float = 0.2
     training: bool = True
@@ -271,7 +272,6 @@ class QRetrievalModel(nn.Module):
     batchnorm: bool = False
     bn_momentum: float = 0.9
     step_rescale: float = 1.0
-    q_config: QuantizationConfig = QuantizationConfig()
 
     def setup(self):
         """

@@ -30,13 +30,16 @@ class QuantizationConfig:
         c_precision: integer precision for C matrix operations.
         d_precision: integer precision for D matrix operations.
         non_ssm_precision: integer precision for all layer operations outside of the SSMs (Dense encode/decode layers)
+        ssm_act_precision: integer precision for all SSM activations
+        non_ssm_act_precision: integer precision for all non-SSM activations
     """
     a_precision: Optional[int]
     b_precision: Optional[int]
     c_precision: Optional[int]
     d_precision: Optional[int]
     non_ssm_precision: Optional[int]
-    activation_precision: Optional[int]
+    ssm_act_precision: Optional[int]
+    non_ssm_act_precision: Optional[int]
 
 
 @dataclass
@@ -61,12 +64,12 @@ class QuantizedOperations:
     def __init__(self, q_config: QuantizationConfig):
         self.a_had = (
             q_had_maybe(q_config.a_precision, q_config.a_precision),
-            q_had_maybe(q_config.a_precision, q_config.activation_precision)
+            q_had_maybe(q_config.a_precision, q_config.ssm_act_precision)
         )
-        self.b_dot = q_dot_maybe(q_config.b_precision, q_config.activation_precision)
-        self.c_dot = q_dot_maybe(q_config.c_precision, q_config.activation_precision)
-        self.d_had = q_had_maybe(q_config.d_precision, q_config.activation_precision)
-        self.non_ssm_dot = q_dot_maybe(q_config.non_ssm_precision, q_config.activation_precision)
+        self.b_dot = q_dot_maybe(q_config.b_precision, q_config.ssm_act_precision)
+        self.c_dot = q_dot_maybe(q_config.c_precision, q_config.ssm_act_precision)
+        self.d_had = q_had_maybe(q_config.d_precision, q_config.ssm_act_precision)
+        self.non_ssm_dot = q_dot_maybe(q_config.non_ssm_precision, q_config.ssm_act_precision)
 
 
 # Parallel scan operations

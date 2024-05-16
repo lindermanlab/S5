@@ -67,7 +67,13 @@ if __name__ == "__main__":
         help="quantization for non-SSM operations (if None, use full precision)",
     )
     parser.add_argument(
-        '--act_bits',
+        '--ssm_act_bits',
+        type=int,
+        default=None,
+        help="quantization of the activations (if None, use full precision)"
+    )
+    parser.add_argument(
+        '--non_ssm_act_bits',
         type=int,
         default=None,
         help="quantization of the activations (if None, use full precision)"

@@ -1,7 +1,7 @@
 from flax import linen as nn
 import jax
 from .qssm_aqt import QuantizationConfig
-from .utils.quantization import q_dot_maybe, q_had_maybe
+from .utils.quantization import q_dot_maybe
 
 
 class QSequenceLayer(nn.Module):
@@ -25,20 +25,20 @@ class QSequenceLayer(nn.Module):
     ssm: nn.Module
     dropout: float
     d_model: int
+    q_config: QuantizationConfig
     activation: str = "gelu"
     training: bool = True
     prenorm: bool = False
     batchnorm: bool = False
     bn_momentum: float = 0.90
     step_rescale: float = 1.0
-    q_config: QuantizationConfig = QuantizationConfig()
 
     def setup(self):
         """Initializes the ssm, batch/layer norm and dropout
         """
         self.seq = self.ssm(step_rescale=self.step_rescale)
         # NOTE: nn.Dense calls dot_general(activation, weights)
-        dot = q_dot_maybe(self.q_config.activation_precision, self.q_config.non_ssm_precision)
+        dot = q_dot_maybe(self.q_config.non_ssm_act_precision, self.q_config.non_ssm_precision)
 
         if self.activation in ["full_glu"]:
             self.out1 = nn.Dense(self.d_model, dot_general=dot)
