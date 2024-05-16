@@ -15,7 +15,7 @@ q_had(jnp.ones(10,), jnp.ones(10,))
 """
 from aqt.jax.v2.aqt_dot_general import CalibrationMode
 from functools import partial
-from typing import Optional
+from typing import Optional, Union
 import aqt.jax.v2.config as aqt_config
 import jax.numpy as np
 import jax
@@ -27,19 +27,23 @@ fully_quantized = partial(
 )
 
 
-def q_dot_maybe(precision: Optional[int]):
-    if precision is None:
+def q_dot_maybe(lhs_bits: Optional[int], rhs_bits: Optional[int]):
+    if lhs_bits is None and rhs_bits is None:
         return np.dot
     else:
-        dot_general = fully_quantized(fwd_bits=precision, bwd_bits=precision)
+        precision = (lhs_bits, rhs_bits)
+        bwd_bits = max([e for e in precision if e is not None])
+        dot_general = fully_quantized(fwd_bits=precision, bwd_bits=bwd_bits)
         return quant_dot_for_dot(dot_general)
 
 
-def q_had_maybe(precision: Optional[int]):
-    if precision is None:
+def q_had_maybe(lhs_bits: Optional[int], rhs_bits: Optional[int]):
+    if lhs_bits is None and rhs_bits is None:
         return np.multiply
     else:
-        dot_general = fully_quantized(fwd_bits=precision, bwd_bits=precision)
+        precision = (lhs_bits, rhs_bits)
+        bwd_bits = max([e for e in precision if e is not None])
+        dot_general = fully_quantized(fwd_bits=precision, bwd_bits=bwd_bits)
         return quant_dot_for_hadamard(dot_general)
 
 

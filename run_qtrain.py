@@ -60,12 +60,17 @@ if __name__ == "__main__":
         default=None,
         help="quantization for D matrix (if None, use full precision)",
     )
-
     parser.add_argument(
         "--non_ssm_bits",
         type=int,
         default=None,
         help="quantization for non-SSM operations (if None, use full precision)",
+    )
+    parser.add_argument(
+        '--act_bits',
+        type=int,
+        default=None,
+        help="quantization of the activations (if None, use full precision)"
     )
 
     # Model Parameters

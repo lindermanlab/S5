@@ -37,7 +37,8 @@ class QSequenceLayer(nn.Module):
         """Initializes the ssm, batch/layer norm and dropout
         """
         self.seq = self.ssm(step_rescale=self.step_rescale)
-        dot = q_dot_maybe(self.q_config.non_ssm_precision)
+        # NOTE: nn.Dense calls dot_general(activation, weights)
+        dot = q_dot_maybe(self.q_config.activation_precision, self.q_config.non_ssm_precision)
 
         if self.activation in ["full_glu"]:
             self.out1 = nn.Dense(self.d_model, dot_general=dot)

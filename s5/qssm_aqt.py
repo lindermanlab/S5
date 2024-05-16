@@ -17,7 +17,7 @@ from .ssm import discretize_bilinear, discretize_zoh
 from .utils.quantization import q_dot_maybe, q_had_maybe
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 
 @dataclass
@@ -36,6 +36,7 @@ class QuantizationConfig:
     c_precision: Optional[int]
     d_precision: Optional[int]
     non_ssm_precision: Optional[int]
+    activation_precision: Optional[int]
 
 
 @dataclass
@@ -44,26 +45,32 @@ class QuantizedOperations:
 
     Attributes:
         a_had: (possibly quantized) hadamard product operation for A matrix.
+            this is actually a tuple of two hadamart product operators.
+            the first one is aa_had for A * A operations (WW)
+            the second one is abu_had for A * Bu operations (WA)
         b_dot: (possibly quantized) dot product operation for B matrix.
         c_dot: (possibly quantized) dot product operation for C matrix.
         d_had: (possibly quantized) hadamard product operation for D matrix.
     """
-    a_had: Callable
-    b_dot: Callable
-    c_dot: Callable
-    d_had: Callable
-    non_ssm_dot: Callable
+    a_had: Tuple[Callable]  # approved
+    b_dot: Callable  # approved
+    c_dot: Callable  # approved
+    d_had: Callable  # approved
+    non_ssm_dot: Callable  # TODO
 
     def __init__(self, q_config: QuantizationConfig):
-        self.a_had = q_had_maybe(q_config.a_precision)
-        self.b_dot = q_dot_maybe(q_config.b_precision)
-        self.c_dot = q_dot_maybe(q_config.c_precision)
-        self.d_had = q_had_maybe(q_config.d_precision)
-        self.non_ssm_dot = q_dot_maybe(q_config.non_ssm_precision)
+        self.a_had = (
+            q_had_maybe(q_config.a_precision, q_config.a_precision),
+            q_had_maybe(q_config.a_precision, q_config.activation_precision)
+        )
+        self.b_dot = q_dot_maybe(q_config.b_precision, q_config.activation_precision)
+        self.c_dot = q_dot_maybe(q_config.c_precision, q_config.activation_precision)
+        self.d_had = q_had_maybe(q_config.d_precision, q_config.activation_precision)
+        self.non_ssm_dot = q_dot_maybe(q_config.non_ssm_precision, q_config.activation_precision)
 
 
 # Parallel scan operations
-def quant_binary_operator(q_i, q_j, qhad_fn):
+def quant_binary_operator(q_i, q_j, qhad_fns):
     """ Binary operator for parallel scan of linear recurrence. Assumes a diagonal matrix A.
         Args:
             q_i: tuple containing A_i and Bu_i at position i       (P,), (P,)
@@ -72,16 +79,17 @@ def quant_binary_operator(q_i, q_j, qhad_fn):
             new element ( A_out, Bu_out )
     TODO: work out if the un-quantized addition is okay.
     """
+    qhad_aa, qhad_abu = qhad_fns
     A_i, b_i = q_i
     A_j, b_j = q_j
     # # return A_j * A_i, A_j * b_i + b_j
     # A_out = qhad_fn(A_j, A_i)
     # Bu_out = qhad_fn(A_j, b_i) + b_j
-    A_out_re = qhad_fn(A_j.real, A_i.real) - qhad_fn(A_j.imag, A_i.imag)
-    A_out_im = qhad_fn(A_j.real, A_i.imag) + qhad_fn(A_j.imag, A_i.real)
+    A_out_re = qhad_aa(A_j.real, A_i.real) - qhad_aa(A_j.imag, A_i.imag)  # TODO(stevenabreu): quantize activations
+    A_out_im = qhad_aa(A_j.real, A_i.imag) + qhad_aa(A_j.imag, A_i.real)
     A_out = A_out_re + 1j * A_out_im
-    Bu_out_re = qhad_fn(A_j.real, b_i.real) - qhad_fn(A_j.imag, b_i.imag)
-    Bu_out_im = qhad_fn(A_j.real, b_i.imag) + qhad_fn(A_j.imag, b_i.real)
+    Bu_out_re = qhad_abu(A_j.real, b_i.real) - qhad_abu(A_j.imag, b_i.imag)
+    Bu_out_im = qhad_abu(A_j.real, b_i.imag) + qhad_abu(A_j.imag, b_i.real)
     Bu_out = Bu_out_re + 1j * Bu_out_im + b_j
     return A_out, Bu_out
 

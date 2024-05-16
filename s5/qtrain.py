@@ -126,7 +126,8 @@ def train(args):
         b_precision=args.b_bits,
         c_precision=args.c_bits,
         d_precision=args.d_bits,
-        non_ssm_precision=args.non_ssm_bits
+        non_ssm_precision=args.non_ssm_bits,
+        activation_precision=args.act_bits,
     )
     # ssm_init_fn = init_S5SSM(H=args.d_model,
     ssm_init_fn = init_qS5SSM(

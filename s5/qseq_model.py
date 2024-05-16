@@ -40,7 +40,9 @@ class QStackedEncoderModel(nn.Module):
         """
         Initializes a linear encoder and the stack of S5 layers.
         """
-        self.encoder = nn.Dense(self.d_model, q_dot_maybe(self.q_config.non_ssm_precision))
+        # NOTE: nn.Dense calls dot_general(activation, weights)
+        dot = q_dot_maybe(self.q_config.activation_precision, self.q_config.non_ssm_precision)
+        self.encoder = nn.Dense(self.d_model, dot_general=dot)
         self.layers = [
             QSequenceLayer(
                 ssm=self.ssm,
@@ -149,7 +151,9 @@ class QClassificationModel(nn.Module):
                             step_rescale=self.step_rescale,
                             q_config=self.q_config
                                         )
-        self.decoder = nn.Dense(self.d_output, dot_general=q_dot_maybe(self.q_config.non_ssm_precision))
+        # NOTE: nn.Dense calls dot_general(activation, weights)
+        dot = q_dot_maybe(self.q_config.activation_precision, self.q_config.non_ssm_precision)
+        self.decoder = nn.Dense(self.d_output, dot_general=dot)
 
     def __call__(self, x, integration_timesteps):
         """
@@ -214,7 +218,8 @@ class QRetrievalDecoder(nn.Module):
         """
         Initializes 2 dense layers to be used for the MLP.
         """
-        dot = q_dot_maybe(self.q_config.non_ssm_precision)
+        # NOTE: nn.Dense calls dot_general(activation, weights)
+        dot = q_dot_maybe(self.q_config.activation_precision, self.q_config.non_ssm_precision)
         self.layer1 = nn.Dense(self.d_model, dot_general=dot)
         self.layer2 = nn.Dense(self.d_output, dot_general=dot)
 
@@ -296,7 +301,7 @@ class QRetrievalModel(nn.Module):
                             q_config=self.q_config
                                         )
         BatchRetrievalDecoder = nn.vmap(
-            RetrievalDecoder,
+            QRetrievalDecoder,
             in_axes=0,
             out_axes=0,
             variable_axes={"params": None},
