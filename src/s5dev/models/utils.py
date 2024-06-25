@@ -1,7 +1,6 @@
+from flax import linen as nn
 import jax.numpy as np
 from jax import random
-from flax import linen as nn
-
 
 def stochastic_depth(key, input, p, mode, training=True):
     """

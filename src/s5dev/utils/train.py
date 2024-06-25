@@ -1,8 +1,10 @@
 """ Utils for the training loop. Copied from https://github.com/HazyResearch/transformers/blob/master/src/utils/utils.py """
+from typing import List, Sequence
+
 import logging
 import os
 import warnings
-from typing import List, Sequence
+
 
 import torch.nn as nn
 import pytorch_lightning as pl
@@ -11,7 +13,7 @@ import rich.tree
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.utilities import rank_zero_only
 
-from .config import omegaconf_filter_keys
+from s5dev.utils.config import omegaconf_filter_keys
 
 
 # Copied from https://docs.python.org/3/howto/logging-cookbook.html#using-a-context-manager-for-selective-logging

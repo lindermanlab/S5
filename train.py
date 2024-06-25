@@ -16,10 +16,11 @@ from flax import jax_utils
 import optax
 from functools import partial
 
+from s5dev.models import get_model
+
 from dataloading import create_wikitext_dataset, create_icl_datasets
 from train_utils import init_model_state, \
         get_first_device, ProgressMeter, seed_all, reshape_batch_per_device
-from src.models import get_model
 
 
 def main():

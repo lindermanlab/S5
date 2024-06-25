@@ -94,3 +94,10 @@ Please reach out if you have any questions or feedback.
 
 -- The S5 authors.
 
+
+## Installation instructions
+Create a new virtual environment with `python>=3.12.1` and execute
+```
+pip install .
+pip install -r requirements.txt
+```

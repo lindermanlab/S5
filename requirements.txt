@@ -1,8 +1,23 @@
+# GPU requirements file
+
+-f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+jax[cuda12_pip]
+
+chex
+datasets
 einops
 flax
-datasets
-transformers
-torchvision
-pytorch-lightning
 omegaconf
+optax
+pytorch-lightning
+scikit-learn
+transformers
 wandb
+
+# Specify pytorch CPU index to force CPU install.
+# We want to prioritize GPU compatability with JAX package,
+# since torch/torchvision only used for dataloading purposes.
+# The versions may possibly be relaxed or removed.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.3.0+cpu
+torchvision==0.18.0+cpu

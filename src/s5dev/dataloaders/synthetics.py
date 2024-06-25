@@ -1,14 +1,16 @@
 '''Synthetic datasets to test in-context learning ability.'''
 
+from collections import Counter
+from typing import Dict
+
 import os
+
+import numpy as np
 import torch
 from torch.utils.data import TensorDataset, Dataset, DataLoader
-from typing import Dict
-import numpy as np
 from tqdm import tqdm
-from collections import Counter
 
-from .base import SequenceDataset
+from s5dev.dataloaders.base import SequenceDataset
 
 
 class Vocab:

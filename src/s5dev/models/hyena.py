@@ -1,11 +1,11 @@
-import jax.numpy as np
+from functools import partial
+import math
+
 from einops import rearrange, repeat
 from flax import linen as nn
 from flax.linen.initializers import normal as flax_normal
-import math
 from jax.nn.initializers import normal
-from functools import partial
-
+import jax.numpy as np
 
 def Activation(activation=None, size=None, dim=-1):
     if activation in [None, 'id', 'identity', 'linear']:

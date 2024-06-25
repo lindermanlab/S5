@@ -1,16 +1,22 @@
-import jax
-import jax.numpy as np
+from functools import partial
+import math
+
 from einops import rearrange, repeat
 from flax import linen as nn
 from flax.linen.initializers import normal as flax_normal
+import jax
+import jax.numpy as np
 from jax.nn.initializers import lecun_normal, normal
 from jax.scipy.linalg import block_diag
-import math
-from functools import partial
 
-from .hyena import Activation, mul_sum
-from .SSM_init import init_CV, init_VinvB,\
-    make_DPLR_HiPPO, init_log_steps, trunc_standard_normal
+from s5dev.models.hyena import Activation, mul_sum
+from s5dev.models.SSM_init import (
+    init_CV,
+    init_log_steps,
+    init_VinvB,
+    make_DPLR_HiPPO,
+    trunc_standard_normal
+)
 
 
 def discretize_zoh(Lambda, B_tilde, Delta):
@@ -83,10 +89,10 @@ def apply_ssm_with_feedthrough(input_sequence, Lambda_bar, B_bar, C_tilde, D, co
 
 
 class S5SSM(nn.Module):
-    Lambda_re_init: np.DeviceArray
-    Lambda_im_init: np.DeviceArray
-    V: np.DeviceArray
-    Vinv: np.DeviceArray
+    Lambda_re_init: jax.Array
+    Lambda_im_init: jax.Array
+    V: jax.Array
+    Vinv: jax.Array
 
     H: int
     P: int

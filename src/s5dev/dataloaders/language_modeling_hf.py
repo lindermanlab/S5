@@ -1,28 +1,29 @@
 # Adapted from https://github.com/huggingface/transformers/blob/master/examples/pytorch/language-modeling/run_clm.py
 # Adapted from https://github.com/HazyResearch/flash-attention/blob/main/training/src/datamodules/language_modeling_hf.py
+from typing import Any, List, Union
+
 from itertools import chain
+import mmap
+from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
 import pickle
-from typing import Any, List, Union
 import subprocess
-import mmap
-
-from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
-
 import torch
 from torch.utils.data.dataloader import DataLoader, Dataset
 from transformers import AutoTokenizer
 from datasets import load_dataset
 
-from .base import SequenceDataset, default_data_path
+from s5dev.dataloaders.base import SequenceDataset, default_data_path
+from s5dev.dataloaders.datasets.lm_dataset import LMDataset
+from s5dev.dataloaders.fault_tolerant_sampler import (
+    FaultTolerantDistributedSampler,
+    RandomFaultTolerantSampler,
+)
+from s5dev.dataloaders.datasets.detokenizer import DATASET_TOKENIZATION_REGISTRY
+from s5dev.utils.train import get_logger
 
-from .datasets.lm_dataset import LMDataset
-from .fault_tolerant_sampler import RandomFaultTolerantSampler
-from .fault_tolerant_sampler import FaultTolerantDistributedSampler
-from .datasets.detokenizer import DATASET_TOKENIZATION_REGISTRY
-from ..utils.train import get_logger
 logger = get_logger()
 
 

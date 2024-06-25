@@ -30,7 +30,7 @@ data_kwargs:
     batch_size_eval: 16
     num_workers: 4
     pin_memory: False
-    data_dir: # todo
+    data_dir: ./tmp # todo
 
 rng_keys: ["dropout"]
 

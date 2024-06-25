@@ -1,17 +1,18 @@
 """ Datasets for core experimental results """
 
 import os
-import pickle
 from functools import partial
+import pickle
 from pathlib import Path
 
-import numpy as np
-import torch
-import torchvision
 from einops import rearrange
 from einops.layers.torch import Rearrange
-from src.utils import is_list, permutations
+import numpy as np
+import torch
 from torch.nn import functional as F
+import torchvision
+
+from s5dev.utils import is_list, permutations
 
 def deprecated(cls_or_func):
     def _deprecated(*args, **kwargs):
