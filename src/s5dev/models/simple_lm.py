@@ -1,14 +1,15 @@
-import jax.numpy as np
-from flax import linen as nn
-from flax.linen.initializers import normal as flax_normal
+from collections import namedtuple
+
 from functools import partial
 import math
 
-from .S5 import S5Operator
-from .hyena import HyenaOperator
-from .utils import StochasticDepth, Identity
-from collections import namedtuple
+from flax import linen as nn
+from flax.linen.initializers import normal as flax_normal
+import jax.numpy as np
 
+from s5dev.models.s5 import S5Operator
+from s5dev.models.hyena import HyenaOperator
+from s5dev.models.utils import StochasticDepth, Identity
 
 class GPT2Embeddings(nn.Module):
     embed_dim: int
@@ -194,7 +195,7 @@ class Block(nn.Module):
 
 def create_mixer_cls(layer=None, d_model=None, n_layer=None, l_max=None, layer_kwargs=None,
                      attn_layer_idx=None, attn_cfg=None, layer_idx=None):
-    if attn_layer_idx is not None and layer_idx in attn_layer_idx:
+    if (attn_layer_idx is not None) and (layer_idx in attn_layer_idx):
         raise NotImplementedError("MHA not implemented")
         # causal = True if attn_cfg is None else attn_cfg.pop('causal', True)
         #
@@ -214,10 +215,12 @@ def create_mixer_cls(layer=None, d_model=None, n_layer=None, l_max=None, layer_k
 
 
 def create_mlp_cls(d_model, d_inner=None):
-    inner_dim = d_inner if d_inner is not None else 4 * d_model
+    inner_dim = d_inner if (d_inner is not None) else 4 * d_model
 
-    mlp_cls = partial(Mlp, hidden_features=inner_dim,
-                      activation=partial(nn.gelu, approximate=True))
+    mlp_cls = partial(Mlp,
+                      hidden_features=inner_dim,
+                      activation=partial(nn.gelu, approximate=True)
+                      )
 
     return mlp_cls
 
@@ -227,52 +230,116 @@ def create_block(d_model, n_layer, l_max=None, layer_kwargs=None, d_inner=None,
                  attn_cfg=None, layer_norm_epsilon=1e-5,
                  resid_dropout1=0.0, resid_dropout2=0.0,
                  layer_idx=None):
-    mixer_cls = create_mixer_cls(layer=layer, d_model=d_model, n_layer=n_layer, l_max=l_max, layer_kwargs=layer_kwargs,
+
+    mixer_cls = create_mixer_cls(layer=layer,
+                                 d_model=d_model,
+                                 n_layer=n_layer,
+                                 l_max=l_max,
+                                 layer_kwargs=layer_kwargs,
                                  attn_layer_idx=attn_layer_idx,
-                                 attn_cfg=attn_cfg, layer_idx=layer_idx)
+                                 attn_cfg=attn_cfg,
+                                 layer_idx=layer_idx
+                                 )
     mlp_cls = create_mlp_cls(d_model, d_inner=d_inner)
     norm_cls = partial(nn.LayerNorm, epsilon=layer_norm_epsilon)
-    block = Block(d_model, n_layer, mixer_cls, mlp_cls, norm_cls=norm_cls,
-                  prenorm=True, resid_dropout1=resid_dropout1, resid_dropout2=resid_dropout2)
+
+    block = Block(d_model,
+                  n_layer,
+                  mixer_cls,
+                  mlp_cls,
+                  norm_cls=norm_cls,
+                  prenorm=True,
+                  resid_dropout1=resid_dropout1,
+                  resid_dropout2=resid_dropout2,
+                  )
     block.layer_idx = layer_idx
+
     return block
 
 
 class LMBackbone(nn.Module):
+    """Language model backbone module.
+
+    Parameters
+    ----------
+    d_model: int
+        Word embedding dimension
+    n_layer: int
+        Number of SSM blocks
+    d_inner: int
+        Model hidden state dimension.
+    layer: str, optional. default=None
+        Filter class for SSM blocks, one of {'hyena', 'S5_operator'}
+        If None, uses multi-headed attention; other parameters required.
+    l_max: int, optional. default: None
+        Maximum input sequence length
+    layer_kwargs: dict, optional. default: None
+        Additional layer keyword args, passed to HyenaOperator or S5Operator.
+    process_group: int, optional. default: None
+        TODO not used
+    attn_layer_idx: int, optional. default: None
+        Attention layer index, used for multi-headed attention
+    attn_cfg: dict, optional. default: None
+        Attention layer configurations, used for multi-headed attention
+    resid_dropout: float, optional. default: 0.0
+        Residual dropout rate.
+    embed_dropout: float, optional. default: 0.1
+        Residual dropout rate for input embedding (i.e. first dropout of first layer)
+    layer_norm_epsilon: float, optional. default: 1e-5
+        Layer norm epsilon, added to variance to avoid DBZ.
+    initializer_cfg: dict, optional. default: None
+        TODO not used
+
+    Arguments
+    ---------
+    hidden_states: ndarray, shape (d_model,)
+    training: bool
+        If True, dropout at specified rate. Else, turn off dropout.
+
+    Returns
+    -------
+    hidden_states, ndarray, shape (d_model,)
+
+    """
+
     d_model: int
     n_layer: int
     d_inner: int
-    vocab_size: int
     layer: str = None
     l_max: int = None
     layer_kwargs: dict = None
     process_group: int = None
     attn_layer_idx: int = None
     attn_cfg: dict = None
-    max_position_embeddings: int = 0
     resid_dropout: float = 0.0
     embed_dropout: float = 0.1
     layer_norm_epsilon: float = 1e-5
     initializer_cfg: dict = None
 
     def setup(self):
-        self.embeddings = GPT2Embeddings(self.d_model,
-                                         self.vocab_size,
-                                         self.max_position_embeddings)
 
-        self.layers = [create_block(
-            self.d_model, self.n_layer, l_max=self.l_max, layer_kwargs=self.layer_kwargs, d_inner=self.d_inner,
-            layer=self.layer, attn_layer_idx=self.attn_layer_idx,
-            attn_cfg=self.attn_cfg, layer_norm_epsilon=self.layer_norm_epsilon,
-            resid_dropout1=self.embed_dropout if i == 0 else self.resid_dropout,
-            resid_dropout2=self.resid_dropout, layer_idx=i) for i in range(self.n_layer)]
+        self.layers = [
+            create_block(
+                self.d_model,
+                self.n_layer,
+                l_max=self.l_max,
+                layer_kwargs=self.layer_kwargs,
+                d_inner=self.d_inner,
+                layer=self.layer,
+                attn_layer_idx=self.attn_layer_idx,
+                attn_cfg=self.attn_cfg,
+                layer_norm_epsilon=self.layer_norm_epsilon,
+                resid_dropout1=self.embed_dropout if (i == 0) else self.resid_dropout,
+                resid_dropout2=self.resid_dropout,
+                layer_idx=i
+            ) for i in range(self.n_layer)
+        ]
 
         self.drop_f = partial(nn.Dropout, self.resid_dropout)
         self.ln_f = nn.LayerNorm(epsilon=self.layer_norm_epsilon)
 
     @nn.compact
-    def __call__(self, input_ids, training, position_ids=None):
-        hidden_states = self.embeddings(input_ids, position_ids=position_ids)
+    def __call__(self, hidden_states, training):
         residual = None
 
         for layer in self.layers:
@@ -284,11 +351,58 @@ class LMBackbone(nn.Module):
 
         return hidden_states
 
-    def attend(self, input):
-        return self.embeddings.attend(input)
-
 
 class SimpleLMHeadModel(nn.Module):
+    """Simple language model head model.
+
+    Parameters
+    ----------
+    d_model: int
+        Word embedding dimension
+    n_layer: int
+        Number of SSM blocks
+    d_inner: int
+        Model hidden state dimension.
+    vocab_size: int
+        Input vocabulary size
+    layer: str, optional. default=None
+        Filter class for SSM blocks, one of {'hyena', 'S5_operator'}
+        If None, uses multi-headed attention; other parameters required.
+    l_max: int, optional. default: None
+        Maximum input sequence length
+    layer_kwargs: dict, optional. default: None
+        Additional layer keyword args, passed to HyenaOperator or S5Operator.
+    attn_layer_idx: int, optional. default: None
+        Attention layer index, used for multi-headed attention
+    attn_cfg: dict, optional. default: None
+        Attention layer configurations, used for multi-headed attention
+    max_position_embeddings: int, optional. default: 0
+        Positional embedding size. If <=0, positional embedding is not used.
+    resid_dropout: float, optional. default: 0.0
+        Residual dropout rate.
+    embed_dropout: float, optional. default: 0.1
+        Residual dropout rate for input embedding (i.e. first dropout of first layer)
+    layer_norm_epsilon: float, optional. default: 1e-5
+        Layer norm epsilon, added to variance to avoid DBZ.
+    initializer_cfg: dict, optional. default: None
+        TODO not used
+    pad_vocab_size_multiple: int, optional. default: 1
+        Value that vocab_size must be a multiple of. If not, pad vocab_size up to this value.
+
+    Arguments
+    ---------
+    hidden_states: ndarray, shape (d_model,)
+    training: bool
+        If True, dropout at specified rate. Else, turn off dropout.
+
+    Returns
+    -------
+    CausalLMOutput: namedtuple, with fields
+        logits: ndarray, shape (vocab_size,). Pseudo-logits of next word.
+    None
+    
+    """
+
     d_model: int
     n_layer: int
     d_inner: int
@@ -307,19 +421,33 @@ class SimpleLMHeadModel(nn.Module):
 
     def setup(self):
         if self.vocab_size % self.pad_vocab_size_multiple != 0:
-            self.vocab_size += self.pad_vocab_size_multiple - (self.vocab_size % self.pad_vocab_size_multiple)
+            mod = (self.vocab_size % self.pad_vocab_size_multiple)
+            self.vocab_size += (self.pad_vocab_size_multiple - mod)
+
+        self.embeddings = GPT2Embeddings(
+            self.d_model, self.vocab_size, self.max_position_embeddings
+        )
 
         self.backbone = LMBackbone(
-            d_model=self.d_model, n_layer=self.n_layer, d_inner=self.d_inner, vocab_size=self.vocab_size,
-            layer=self.layer, l_max=self.l_max, layer_kwargs=self.layer_kwargs, attn_layer_idx=self.attn_layer_idx, attn_cfg=self.attn_cfg,
-            max_position_embeddings=self.max_position_embeddings,
-            resid_dropout=self.resid_dropout, embed_dropout=self.embed_dropout,
+            d_model=self.d_model,
+            n_layer=self.n_layer,
+            d_inner=self.d_inner,
+            layer=self.layer,
+            l_max=self.l_max,
+            layer_kwargs=self.layer_kwargs,
+            attn_layer_idx=self.attn_layer_idx,
+            attn_cfg=self.attn_cfg,
+            resid_dropout=self.resid_dropout,
+            embed_dropout=self.embed_dropout,
             layer_norm_epsilon=self.layer_norm_epsilon,
             initializer_cfg=self.initializer_cfg
         )
 
     def __call__(self, input_ids, training=True, position_ids=None, state=None):
-        hidden_states = self.backbone(input_ids, training, position_ids=position_ids)
-        lm_logits = self.backbone.attend(hidden_states)
+
+        input_embeddings = self.embeddings(input_ids, position_ids=position_ids)
+        hidden_states = self.backbone(input_embeddings, training)
+        logits = self.embeddings.attend(hidden_states)
+
         CausalLMOutput = namedtuple('CausalLMOutput', ['logits'])
-        return CausalLMOutput(logits=lm_logits), None
+        return CausalLMOutput(logits=logits), None

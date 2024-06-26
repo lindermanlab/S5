@@ -1,5 +1,6 @@
 # Adapted from https://github.com/Lightning-AI/lightning/blob/2845e7565dbe6b765ae32870e7d2bc456529c30a/tests/tests_pytorch/utilities/test_auto_restart.py#L1397
 from typing import Iterator
+
 import math
 
 import torch

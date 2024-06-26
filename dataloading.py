@@ -1,6 +1,9 @@
-import torch
-from pathlib import Path
 from typing import Callable, Optional, TypeVar, Dict, Tuple
+
+from pathlib import Path
+
+import torch
+
 
 DEFAULT_CACHE_DIR_ROOT = Path('./cache_dir/')
 
@@ -61,7 +64,7 @@ def create_icl_datasets(config: dict): # -> ReturnType:
 	:return:
 	"""
 	print("[*] Generating ICL Dataset")
-	from src.dataloaders.synthetics import ICLDataModule
+	from s5dev.dataloaders.synthetics import ICLDataModule
 
 	dataset_obj = ICLDataModule(config.num_examples,
 								config.num_test_examples,
@@ -85,7 +88,7 @@ def create_wikitext_dataset(config: dict): # -> ReturnType:
 	:return:
 	"""
 	print("[*] Creating wikitext-103 Dataset")
-	from src.dataloaders.language_modeling_hf import LMDataModuleWT103
+	from s5dev.dataloaders.language_modeling_hf import LMDataModuleWT103
 
 	dataset_obj = LMDataModuleWT103("wikitext",
 									"gpt2",

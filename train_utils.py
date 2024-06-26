@@ -1,12 +1,14 @@
 from typing import Any
+
 from collections import OrderedDict
+from functools import partial
 import random
-import numpy as np
-import jax
+
 from flax.training import train_state
 from flax.core.frozen_dict import freeze
+import jax
+import numpy as np
 import optax
-from functools import partial
 
 
 def map_nested_fn(fn):
@@ -149,8 +151,7 @@ def get_optimizer(config, params):
 
 
 def init_model_state(rng_key, model, input, config):
-    variables = model.init({k: rng_key for k in ['params', *config.rng_keys]}, input, training=True
-    ).unfreeze()
+    variables = model.init({k: rng_key for k in ['params', *config.rng_keys]}, input, training=True)
     params = variables.pop('params')
     model_state = variables
     print_model_size(params)

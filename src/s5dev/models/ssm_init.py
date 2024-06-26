@@ -1,9 +1,7 @@
-
 from jax import random
 import jax.numpy as np
 from jax.nn.initializers import lecun_normal
 from jax.numpy.linalg import eigh
-
 
 def make_HiPPO(N):
     """ Create a HiPPO-LegS matrix.
