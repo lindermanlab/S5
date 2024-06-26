@@ -10,7 +10,7 @@ from jax.nn.initializers import lecun_normal, normal
 from jax.scipy.linalg import block_diag
 
 from s5dev.models.hyena import Activation, mul_sum
-from s5dev.models.SSM_init import (
+from s5dev.models.ssm_init import (
     init_CV,
     init_log_steps,
     init_VinvB,

@@ -7,7 +7,7 @@ from flax import linen as nn
 from flax.linen.initializers import normal as flax_normal
 import jax.numpy as np
 
-from s5dev.models.S5 import S5Operator
+from s5dev.models.s5 import S5Operator
 from s5dev.models.hyena import HyenaOperator
 from s5dev.models.utils import StochasticDepth, Identity
 
