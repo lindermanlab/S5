@@ -186,7 +186,6 @@ class ICLDataModule(SequenceDataset):
             copy_method: str,
             number_duplicates_per_epoch: int = 0,
             seed: int = 0,
-            batch_size: int = 32,
             split_train_test: bool = False,
             induction_len: int = 1,
             induction_num_triggers: int = 1,
@@ -195,7 +194,7 @@ class ICLDataModule(SequenceDataset):
             test_seq_len: int = None,
             num_keys: int = 1,  # number of keys for associative recall,
             data_dir: str = None,
-            *args, **kwargs
+            **dataloader_kwargs
     ):
         self.num_examples = num_examples
         self.num_test_examples = num_test_examples
@@ -206,13 +205,21 @@ class ICLDataModule(SequenceDataset):
         print("using copy method: {}".format(copy_method))
         self.number_duplicates_per_epoch = number_duplicates_per_epoch
         self.seed = seed
-        self.batch_size = batch_size
         self.split_train_test = split_train_test  # let the same copy chars appear in train/test
         self.induction_len = induction_len
         self.induction_num_triggers = induction_num_triggers
         self.allow_dot = allow_dot
         self.max_copy_len = max_copy_len
         self.data_dir = data_dir
+
+        # Filter through dataloader_kwargs
+        for kwarg in dataloader_kwargs.keys():
+            if kwarg in ('shuffle', 'drop_last', 'generator',):
+                dataloader_kwargs.pop(kwarg)
+                print(f"WARNING: Ignoring {kwarg} parameter to DataLoader; this is controlled by the DataModule.") 
+        dataloader_kwargs['num_workers'] = dataloader_kwargs.setdefault('num_workers', 10)
+        dataloader_kwargs['persistent_workers'] = dataloader_kwargs.setdefault('persistent_workers', True)
+        self.dataloader_kwargs = dataloader_kwargs
 
         if test_seq_len is not None:
             self.test_seq_len = test_seq_len
@@ -329,20 +336,10 @@ class ICLDataModule(SequenceDataset):
         }
 
     def train_dataloader(self, *args, **kwargs):
-        return self._data_loader(self.dataset['train'], shuffle=True, drop_last=True)
+        return DataLoader(self.dataset['train'], shuffle=True, drop_last=True, **self.dataloader_kwargs)
 
     def val_dataloader(self, *args, **kwargs):
-        return self._data_loader(self.dataset['test'], shuffle=False)
+        return DataLoader(self.dataset['test'], shuffle=False, **self.dataloader_kwargs)
 
     def test_dataloader(self, *args, **kwargs):
-        return self._data_loader(self.dataset['test'], shuffle=False)
-
-    def _data_loader(self, dataset: Dataset, shuffle: bool = False, drop_last: bool = False) -> DataLoader:
-        return DataLoader(
-            dataset,
-            batch_size=self.batch_size,
-            num_workers=10,
-            drop_last=drop_last,
-            shuffle=shuffle,
-            persistent_workers=True
-        )
+        return DataLoader(self.dataset['test'], shuffle=False, **self.dataloader_kwargs)
