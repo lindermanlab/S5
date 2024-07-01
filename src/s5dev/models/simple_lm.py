@@ -388,6 +388,8 @@ class SimpleLMHeadModel(nn.Module):
         TODO not used
     pad_vocab_size_multiple: int, optional. default: 1
         Value that vocab_size must be a multiple of. If not, pad vocab_size up to this value.
+    aux_rng_streams: Sequence[str], default=('dropout',)
+        Names of auxilary variable collections to seed RNG streams for.
 
     Arguments
     ---------
@@ -418,6 +420,7 @@ class SimpleLMHeadModel(nn.Module):
     layer_norm_epsilon: float = 1e-5
     initializer_cfg: dict = None
     pad_vocab_size_multiple: int = 1
+    aux_rng_streams = ('dropout',)
 
     def setup(self):
         if self.vocab_size % self.pad_vocab_size_multiple != 0:
