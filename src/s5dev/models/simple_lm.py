@@ -203,13 +203,23 @@ def create_mixer_cls(layer=None, d_model=None, n_layer=None, l_max=None, layer_k
         #
         # mixer_cls = partial(mha_cls, causal=causal, layer_idx=layer_idx,
         #                     **(attn_cfg if attn_cfg is not None else {}),**factory_kwargs)
-    else:
-        if layer == "hyena":
+    elif layer is not None:
+        if layer.lower() == "hyena":
             # mixer_cls = instantiate(registry.layer, layer, partial=True, layer_idx=layer_idx, **factory_kwargs)
             mixer_cls = HyenaOperator(d_model, n_layer, l_max, **layer_kwargs)
 
-        elif layer == "S5_operator":
+        elif layer.lower() == "s5_operator":
             mixer_cls = S5Operator(d_model, n_layer, l_max, **layer_kwargs)
+        
+        else:
+            raise ValueError(
+                f"Expected layer to be one of 'hyena' or 's5_operator', but got {layer}."
+            )
+    else:
+        raise ValueError(
+            "Expected either attn_layer_idx or layer to not be None, but got "
+            +f"attn_layer_idx={attn_layer_idx}, layer_idx={layer_idx}, and layer={layer}."
+        )
 
     return mixer_cls
 
