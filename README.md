@@ -96,8 +96,13 @@ Please reach out if you have any questions or feedback.
 
 
 ## Installation instructions
-Create a new virtual environment with `python>=3.12.1` and execute
+Create a new virtual environment with `python>=3.9.2` and execute
 ```
-pip install .
-pip install -r requirements.txt
+pip install -r requirements_{cpu,gpu}.txt
+pip install -e .
 ```
+
+GPU installation expecteds Cuda12, and pip installation includes NVIDIA CUDA and cuDNN.
+This is only available for x86_64 and aarch64 platforms.
+See the Jax installation page for more details
+[(link)](https://jax.readthedocs.io/en/latest/installation.html#pip-installation-nvidia-gpu-cuda-installed-via-pip-easier).
