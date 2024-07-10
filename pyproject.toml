@@ -10,23 +10,23 @@ authors = [
 ]
 description = "S5 deep state space model and extensions"
 readme = "README.md"
-requires-python = ">=3.12.1"
+requires-python = ">=3.9.2"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-# # Automatic installation from file is not currently supported
-# # and require manual installation (see README.md)
-# # due to use of pip flags within requirements file.
-# # See: https://stackoverflow.com/a/73600610
-# dynamic = ["dependencies", "optional-dependencies"]
+# Automatic installation from file is not currently supported
+# and require manual installation (see README.md)
+# due to the use of pip flags within the requirements file.
+# See: https://stackoverflow.com/a/73600610
+dynamic = ["dependencies", "optional-dependencies"]
 
 [project.urls]
 Homepage = "https://github.com/lindermanlab/S5/tree/development"
 
 [tool.setuptools.dynamic]
-# # Automatic installation from requirements file not currently supported;
-# # see comment above. Lines retained here for documentation.
+# Automatic installation from requirements file not currently supported;
+# see comment above. Lines retained here for documentation.
 # dependencies = {file = ["requirements.txt"]}
 # optional-dependencies = {dev = {file = ["requirements-dev.txt"]}}

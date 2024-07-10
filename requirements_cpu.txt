@@ -1,0 +1,17 @@
+chex
+datasets
+einops
+flax
+jax
+omegaconf
+optax
+pytorch-lightning
+scikit-learn
+transformers
+wandb
+
+# Specify pytorch CPU index to force CPU install.
+# The versions may possibly be relaxed or removed.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.3.0+cpu
+torchvision==0.18.0+cpu
