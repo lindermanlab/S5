@@ -1,12 +1,8 @@
-# GPU requirements file
-
--f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-jax[cuda12_pip]
-
 chex
 datasets
 einops
 flax
+jax[cuda12_pip]
 omegaconf
 optax
 pytorch-lightning
