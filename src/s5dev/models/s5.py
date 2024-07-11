@@ -38,54 +38,56 @@ def discretize_zoh(Lambda, B_tilde, Delta):
 # Parallel scan operations
 @jax.vmap
 def binary_operator(q_i, q_j):
-    """ Binary operator for parallel scan of linear recurrence. Assumes a diagonal matrix A.
-        Args:
-            q_i: tuple containing A_i and Bu_i at position i       (P,), (P,)
-            q_j: tuple containing A_j and Bu_j at position j       (P,), (P,)
-        Returns:
-            new element ( A_out, Bu_out )
+    """Binary operator for parallel scan of linear recurrence.
+
+    Should be called like
+        _, xs = jax.lax.associative_scan(binary_operator, (A_elements, B_elements))
+    Assumes diagonal A matrix.
+
+    Args:
+        q_i: tuple containing A_i and Bu_i at position i       (P,), (P,)
+        q_j: tuple containing A_j and Bu_j at position j       (P,), (P,)
+
+    Returns:
+        new element ( A_out, Bu_out )
     """
     A_i, b_i = q_i
     A_j, b_j = q_j
     return A_j * A_i, A_j * b_i + b_j
 
 
-def apply_ssm(Lambda_bar, B_bar, C_tilde, input_sequence, conj_sym):
-    """ Compute the LxH output of discretized SSM given an LxH input.
-        Args:
-            Lambda_bar (complex64): discretized diagonal state matrix    (P,)
-            B_bar      (complex64): discretized input matrix             (P, H)
-            C_tilde    (complex64): output matrix                        (H, P)
-            input_sequence (float32): input sequence of features         (L, H)
-            conj_sym (bool):         whether conjugate symmetry is enforced
-            bidirectional (bool):    whether bidirectional setup is used,
-                                  Note for this case C_tilde will have 2P cols
-        Returns:
-            ys (float32): the SSM outputs (S5 layer preactivations)      (L, H)
+def apply_ssm(input_seq, Lambda_bar, B_bar, C_tilde, D, conj_sym):
+    """Compute the output sequence of a discretized SSM using a parallel scan.
+
+    Assumes initial state is vector of all 0's.
+
+    Args:
+        input_seq : Array[float32], shape (L,H). Input sequence
+        Lambda_bar: Array[complex64], shape (P,). Discretized diagonal state matrix.
+        B_bar     : Array[complex64], shape (P,H). Discretized input matrix
+        C_tilde   : Array[complex64], shape (H,P). State emissions matrix
+        D         : Array[float32], shape (H,). Diagonal feedthrough matrix.
+        conj_sym  : bool. If True, indicates that conjugate symmetry is enforced by halving
+            state representation. This implies that when taking the real portion of the
+            state emission, it needs to be multipled by a factor of 2.
+        bidirectional: bool. If True, use bidirectional setup; C_tilde is shape (H, 2P).
+            TODO Needs to be implemented
+    Returns:
+        x: Array[complex64], shape (P,). Last state
+        ys Array[float32], shape (L,H). Emissions with feedthrough
     """
-    Lambda_elements = Lambda_bar * np.ones((input_sequence.shape[0],
-                                            Lambda_bar.shape[0]))
-    Bu_elements = jax.vmap(lambda u: B_bar @ u)(input_sequence)
+    
+    # Apply state dynamics using parallel scan
+    Lambda_elements = np.tile(Lambda_bar, reps=(len(input_seq), 1))  # shape (L,P)
+    Bu_elements = jax.vmap(lambda u: B_bar @ u)(input_seq)  # shape (L,P)
 
     _, xs = jax.lax.associative_scan(binary_operator, (Lambda_elements, Bu_elements))
 
-    if conj_sym:
-        return jax.vmap(lambda x: 2*(C_tilde @ x).real)(xs)
-    else:
-        return jax.vmap(lambda x: (C_tilde @ x).real)(xs)
-
-
-def apply_ssm_with_feedthrough(input_sequence, Lambda_bar, B_bar, C_tilde, D, conj_sym):
-    ys = apply_ssm(Lambda_bar,
-                   B_bar,
-                   C_tilde,
-                   input_sequence,
-                   conj_sym)
-
-    # Add feedthrough matrix output Du;
-    Du = jax.vmap(lambda u: D * u)(input_sequence)
-    output_sequence = ys + Du
-    return output_sequence
+    # Apply state emissions
+    conj_sym_fctr = 2 if conj_sym else 1
+    ys = conj_sym_fctr * jax.vmap(lambda x: (C_tilde @ x).real)(xs) + D * input_seq
+    
+    return xs[-1], ys
 
 
 class S5SSM(nn.Module):
@@ -104,30 +106,56 @@ class S5SSM(nn.Module):
     activation: str = "gelu"
 
     """ The S5 SSM
-        Args:
-            Lambda_re_init (complex64): Real part of init diag state matrix  (P,)
-            Lambda_im_init (complex64): Imag part of init diag state matrix  (P,)
-            V           (complex64): Eigenvectors used for init           (P,P)
-            Vinv        (complex64): Inverse eigenvectors used for init   (P,P)
-            H           (int32):     Number of features of input seq 
-            P           (int32):     state size
-            C_init      (string):    Specifies How C is initialized
-                         Options: [trunc_standard_normal: sample from truncated standard normal 
-                                                        and then multiply by V, i.e. C_tilde=CV.
-                                   lecun_normal: sample from Lecun_normal and then multiply by V.
-                                   complex_normal: directly sample a complex valued output matrix 
-                                                    from standard normal, does not multiply by V]
-            dt_min:      (float32): minimum value to draw timescale values from when 
-                                    initializing log_step
-            dt_max:      (float32): maximum value to draw timescale values from when 
-                                    initializing log_step
-            conj_sym    (bool):    Whether conjugate symmetry is enforced
-            clip_eigs   (bool):    Whether to enforce left-half plane condition, i.e.
-                                   constrain real part of eigenvalues to be negative. 
-                                   True recommended for autoregressive task/unbounded sequence lengths
-                                   Discussed in https://arxiv.org/pdf/2206.11893.pdf.
-            activation   (str):    type of activation to apply to SSM outputs
 
+    The state space model is parameterized in complex modal coordinates.
+    Consider the following real-valued state space model with state transtion matrix A,
+    state input matrix B, state emission matrix C, and input feedthrough matrix D:
+        z[i] = A z[i-1] + B u[i]
+        y[i] = C z[i] + D u[i]
+    The modal representation of this system uses the diagonaled state transition matrix
+    Lambda, where A = Vinv @ Lambda @ V, and transformed state x[i] = V @ z[i].
+    Then, the above system is equivalently expressed as
+        x[i] = Lambda x[i-1] + B_tilde u[i]
+        y[i] = C_tilde x[i] + D u[i]
+    where B_tilde = Vinv @ B and C_tilde = C @ V.
+
+    Args:
+        Lambda_re_init (float32): Real part of init diag state matrix  (P_,)
+        Lambda_im_init (float32): Imag part of init diag state matrix  (P_,)
+        V           (complex64): Eigenvectors used for init           (P,P_)
+        Vinv        (complex64): Inverse eigenvectors used for init   (P_,P)
+        H           (int32):     Feature dimension
+        P           (int32):     State dimension.
+            Denoted as P_ in docstrings. If conj_sym, P_ = P//2, where P is true state dimension
+            (referred to as 'local_P' in setup).
+        C_init      (string):    Method for initializing emissions matrix C. Options:
+            - 'trunc_standard_normal': Sample from truncated standard normal,
+                                       then apply modal transform, i.e. C_tilde = C @ V
+            - 'lecun_normal': Sample from Lecun_normal, then apply modal transform, i.e. C_tilde = C @ V.
+            - 'complex_normal': Directly sample a complex valued output matrix from standard normal.
+                                No further transformation applied, i.e. C_tilde = C.
+        dt_min:      (float32): minimum value to draw timescale values from when 
+                                initializing log_step
+        dt_max:      (float32): maximum value to draw timescale values from when 
+                                initializing log_step
+        conj_sym    (bool):    Whether conjugate symmetry is enforced
+        clip_eigs   (bool):    Whether to enforce left-half plane condition, i.e.
+                                constrain real part of eigenvalues to be negative. 
+                                True recommended for autoregressive task/unbounded sequence lengths
+                                Discussed in https://arxiv.org/pdf/2206.11893.pdf.
+        activation   (str):    type of activation to apply to SSM outputs
+
+    nn.Module params:
+        Lambda_re: Array[float32], (P_,). Real part of diagonal transition matrix.
+        Lambda_im: Array[float32], (P_,). Imaginary part of diagonal transition matrix.
+        B: Array[float32], (P_, H, 2).
+            Real and imaginary part of input matrix, in modal_coordinates.
+        C: Array[float32], (H, state_dim, 2).
+            Real and imaginary part of state emissions matrix, in modal_coordinates.
+        D: Array[float32], (H,). Diagonal feedthrough matrix.
+        log_step: Array[float32], (H,1). Per-feature timescale discretization value.
+    where P_ = P//2 if conj_sym else P_ = P
+        
     """
 
     def setup(self):
@@ -169,7 +197,7 @@ class S5SSM(nn.Module):
             C_init = lecun_normal()
             C_shape = (self.H, local_P, 2)
         elif self.C_init in ["complex_normal"]:
-            C_init = normal(stddev=0.5 ** 0.5)
+            C_init = normal(stddev=0.5 ** 0.5, dtype="complex")  # dtype="complex": allow jax backend to set correct precision
         else:
             raise NotImplementedError(
                    "C_init method {} not implemented".format(self.C_init))
@@ -204,28 +232,25 @@ class S5SSM(nn.Module):
         self.Lambda_bar, self.B_bar = discretize_zoh(self.Lambda, B_tilde, step)
 
     def __call__(self, input_sequence, training=True):
-        """
-        Compute the LxH output of the S5 SSM given an LxH input sequence
-        using a parallel scan.
+        """Compute output sequence given an input sequence using a parallel scan.
+
         Args:
-             input_sequence (float32): input sequence (bsz, num_heads, H, num_blocks, L)
-                                       where for now num_heads and num_blocks is 1
+            input_sequence: Array[float32], shape (bsz, n_heads, H, n_seq_blocks, L)
+                The 5-dimensional is due to the shape imposed by the original Hyena implementation.
+                S5 assumes n_heads and n_seq_blocks are singleton dimensions.
+        
         Returns:
-            output sequence (float32): (bsz, num_heads, H, num_blocks, L)
+            output_sequence Array[float32](bsz, n_heads, H, n_seq_blocks, L)
         """
 
-        input_sequence = input_sequence[:, 0, :, 0]
-        input_sequence = input_sequence.transpose(0, 2, 1)
-        # input sequence is now bsz, L, H
+        input_sequence = input_sequence[:, 0, :, 0]  # Remove singleton dimensions
+        input_sequence = input_sequence.transpose(0, 2, 1)  # Now, (bsz, L, H)
 
-        ys = jax.vmap(apply_ssm_with_feedthrough,
-                      in_axes=(0, None, None, None, None, None)
-                      )(input_sequence,
-                        self.Lambda_bar,
-                        self.B_bar,
-                        self.C_tilde,
-                        self.D,
-                        self.conj_sym)  # ys is bsz, L, H
+        # Apply input sequence to SSM using parallel scan. vmap over bsz axis.
+        # Returns ys: shape (bsz, L, H)
+        _, ys = jax.vmap(
+            apply_ssm, in_axes=(0, None, None, None, None, None)
+        )(input_sequence, self.Lambda_bar, self.B_bar, self.C_tilde, self.D, self.conj_sym)
 
         if self.activation in ["full_glu"]:
             ys = nn.activation.gelu(ys, approximate=False)
@@ -242,12 +267,62 @@ class S5SSM(nn.Module):
         else:
             raise NotImplementedError(
                 "Activation: {} not implemented".format(self.activation))
-        # ys is bsz, L, H
-        output_sequence = np.expand_dims(ys.transpose(0, 2, 1), (1, 3))
-        # output sequence is bsz, 1, H, 1, L
+
+        output_sequence = np.expand_dims(ys.transpose(0, 2, 1), (1, 3))  # Now, (bsz,1,H,1,L)
 
         return output_sequence
 
+    def step(self, state, inpt, training=False):
+        """Compute single step of S5 DSSM given an input.
+
+        Args:
+            state: Array[complex64], shape (bsz, state_dim)
+                State at last timestep.
+            inpt: Array[float32], shape (bsz, n_heads, H, n_blocks)
+                The singleton sequence length dimension has been removed.
+                Otherwise, the (now 4-dim) shape is due to original Hyena implementation.
+                S5 assumes n_heads and n_seq_blocks are singleton dimensions.
+                Using argument name `inpt` to avoid clash with built-in `input` function.
+        
+        Returns:
+            new_state: Array[complex64], shape (bsz, state_dim)
+            output: Array[float32], shape (bsz, n_heads, H, n_blocks)
+                Return in (new_state, output) order to be consistent with
+                output signature (carry, y) of scan functions, e.g. jax.lax.scan or nn.scan
+        """
+
+        # Remove singleton axes
+        inpt = inpt[:, 0, :, 0]
+
+        # Apply single SSM step; vmap over bsz axis
+        # Recall that we define our state-space model (in the real standard case) as
+        #   x[i] = A x[i-1] + B u[i]
+        #   y[i] = C x[i] + D u[i]
+        # so make sure to compute output y with the new state.
+        fctr = 2 if self.conj_sym else 1
+        new_state = jax.vmap(lambda x, u: self.Lambda_bar * x + self.B_bar @ u)(state, inpt)
+        y = jax.vmap(lambda x, u: fctr*(self.C_tilde @ x).real + self.D * u)(new_state, inpt)
+
+        # Apply non-linear function
+        if self.activation in ["full_glu"]:
+            y = nn.activation.gelu(y, approximate=False)
+            y = self.out1(y) * jax.nn.sigmoid(self.out2(y))
+        elif self.activation in ["half_glu1"]:
+            y = nn.activation.gelu(y, approximate=False)
+            y = y * jax.nn.sigmoid(self.out2(y))
+        elif self.activation in ["half_glu2"]:
+            # Only apply GELU to the gate input
+            x1 = nn.activation.gelu(y, approximate=False)
+            y = y * jax.nn.sigmoid(self.out2(x1))
+        elif self.activation in ["gelu"]:
+            y = nn.activation.gelu(y, approximate=False)
+        else:
+            raise NotImplementedError(
+                "Activation: {} not implemented".format(self.activation))
+
+        output = y[:,None,:,None]   # Now, (bsz, 1, H, 1)
+        
+        return new_state, output
 
 def init_S5SSM(d_model, ssm_size, blocks, ssm_args):
     """Convenience function that will be used to initialize the SSM.
@@ -269,10 +344,6 @@ def init_S5SSM(d_model, ssm_size, blocks, ssm_args):
     Lambda = (Lambda * np.ones((blocks, block_size))).ravel()
     V = block_diag(*([V] * blocks))
     Vinv = block_diag(*([Vc] * blocks))
-
-    # print("Lambda.shape={}".format(Lambda.shape))
-    # print("V.shape={}".format(V.shape))
-    # print("Vinv.shape={}".format(Vinv.shape))
 
     return S5SSM(Lambda.real,
                  Lambda.imag,
