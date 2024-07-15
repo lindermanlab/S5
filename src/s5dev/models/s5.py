@@ -50,43 +50,12 @@ def binary_operator(q_i, q_j):
 
     Returns:
         new element ( A_out, Bu_out )
-    """Binary operator for parallel scan of linear recurrence.
-
-    Should be called like
-        _, xs = jax.lax.associative_scan(binary_operator, (A_elements, B_elements))
-    Assumes diagonal A matrix.
-
-    Args:
-        q_i: tuple containing A_i and Bu_i at position i       (P,), (P,)
-        q_j: tuple containing A_j and Bu_j at position j       (P,), (P,)
-
-    Returns:
-        new element ( A_out, Bu_out )
     """
     A_i, b_i = q_i
     A_j, b_j = q_j
     return A_j * A_i, A_j * b_i + b_j
 
 
-def apply_ssm(input_seq, Lambda_bar, B_bar, C_tilde, D, conj_sym):
-    """Compute the output sequence of a discretized SSM using a parallel scan.
-
-    Assumes initial state is vector of all 0's.
-
-    Args:
-        input_seq : Array[float32], shape (L,H). Input sequence
-        Lambda_bar: Array[complex64], shape (P,). Discretized diagonal state matrix.
-        B_bar     : Array[complex64], shape (P,H). Discretized input matrix
-        C_tilde   : Array[complex64], shape (H,P). State emissions matrix
-        D         : Array[float32], shape (H,). Diagonal feedthrough matrix.
-        conj_sym  : bool. If True, indicates that conjugate symmetry is enforced by halving
-            state representation. This implies that when taking the real portion of the
-            state emission, it needs to be multipled by a factor of 2.
-        bidirectional: bool. If True, use bidirectional setup; C_tilde is shape (H, 2P).
-            TODO Needs to be implemented
-    Returns:
-        x: Array[complex64], shape (P,). Last state
-        ys Array[float32], shape (L,H). Emissions with feedthrough
 def apply_ssm(input_seq, Lambda_bar, B_bar, C_tilde, D, conj_sym):
     """Compute the output sequence of a discretized SSM using a parallel scan.
 
@@ -123,28 +92,9 @@ def apply_ssm(input_seq, Lambda_bar, B_bar, C_tilde, D, conj_sym):
     ys = conj_sym_fctr * jax.vmap(lambda x: (C_tilde @ x).real)(xs) + D * input_seq
     
     return xs[-1], ys
-    # Apply state emissions
-    conj_sym_fctr = 2 if conj_sym else 1
-    ys = conj_sym_fctr * jax.vmap(lambda x: (C_tilde @ x).real)(xs) + D * input_seq
-    
-    return xs[-1], ys
 
 
 class S5SSM(nn.Module):
-    Lambda_re_init: jax.Array
-    Lambda_im_init: jax.Array
-    V: jax.Array
-    Vinv: jax.Array
-
-    H: int
-    P: int
-    C_init: str
-    dt_min: float
-    dt_max: float
-    conj_sym: bool = True
-    clip_eigs: bool = False
-    activation: str = "gelu"
-
     """ The S5 SSM
 
     The state space model is parameterized in complex modal coordinates.
@@ -247,6 +197,21 @@ class S5SSM(nn.Module):
         
     """
 
+    Lambda_re_init: jax.Array
+    Lambda_im_init: jax.Array
+    V: jax.Array
+    Vinv: jax.Array
+
+    H: int
+    P: int
+    C_init: str
+    dt_min: float
+    dt_max: float
+    conj_sym: bool = True
+    clip_eigs: bool = False
+    activation: str = "gelu"
+
+
     def setup(self):
         """Initializes parameters once and performs discretization each time
            the SSM is applied to a sequence
@@ -323,8 +288,6 @@ class S5SSM(nn.Module):
     def __call__(self, input_sequence, training=True):
         """Compute output sequence given an input sequence using a parallel scan.
 
-        """Compute output sequence given an input sequence using a parallel scan.
-
         Args:
             input_sequence: Array[float32], shape (bsz, n_heads, H, n_seq_blocks, L)
                 The 5-dimensional is due to the shape imposed by the original Hyena implementation.
@@ -341,14 +304,7 @@ class S5SSM(nn.Module):
 
         input_sequence = input_sequence[:, 0, :, 0]  # Remove singleton dimensions
         input_sequence = input_sequence.transpose(0, 2, 1)  # Now, (bsz, L, H)
-        input_sequence = input_sequence[:, 0, :, 0]  # Remove singleton dimensions
-        input_sequence = input_sequence.transpose(0, 2, 1)  # Now, (bsz, L, H)
 
-        # Apply input sequence to SSM using parallel scan. vmap over bsz axis.
-        # Returns ys: shape (bsz, L, H)
-        _, ys = jax.vmap(
-            apply_ssm, in_axes=(0, None, None, None, None, None)
-        )(input_sequence, self.Lambda_bar, self.B_bar, self.C_tilde, self.D, self.conj_sym)
         # Apply input sequence to SSM using parallel scan. vmap over bsz axis.
         # Returns ys: shape (bsz, L, H)
         _, ys = jax.vmap(
@@ -370,8 +326,6 @@ class S5SSM(nn.Module):
         else:
             raise NotImplementedError(
                 "Activation: {} not implemented".format(self.activation))
-
-        output_sequence = np.expand_dims(ys.transpose(0, 2, 1), (1, 3))  # Now, (bsz,1,H,1,L)
 
         output_sequence = np.expand_dims(ys.transpose(0, 2, 1), (1, 3))  # Now, (bsz,1,H,1,L)
 
