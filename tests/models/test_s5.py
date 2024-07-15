@@ -19,6 +19,7 @@ from s5dev.models.s5 import (
     apply_ssm,
     discretize_zoh,
     init_S5SSM,
+    S5Operator,
     S5SSM
 )
 
@@ -146,7 +147,7 @@ def test_apply_ssm(
 def test_s5ssm_step(
     C_init, conj_sym, clip_eigs, batch_size=64, seq_len=8, d_input=12, d_state=4, n_blocks=1, atol=1e-8, rtol=1e-7
 ):
-    """Test S5SSM autoregressive generation `step` implementation.
+    """Test S5SSM autoregressive generation via `step` implementation.
     
     Given an input sequence, the autoregressively generated output sequence should be
     the same as the output sequence produced in parallel by applying `__call__`.
@@ -156,14 +157,14 @@ def test_s5ssm_step(
     parallel `__call__` and the autoregressive `step`.
     """
 
-    rng, init_rng, data_rng = jr.split(DEFAULT_RNG, num=3)
+    init_rng, data_rng = jr.split(DEFAULT_RNG, num=3)
 
     ssm_kwargs = DEFAULT_S5SSM_KWARGS | {
         "C_init": C_init, "conj_sym": conj_sym, "clip_eigs": clip_eigs
     }
 
     # Generate random input sequence
-    input_seq = jr.normal(rng, shape=(batch_size, seq_len, d_input))
+    input_seq = jr.normal(data_rng, shape=(batch_size, seq_len, d_input))
     input_seq = reshape_for_s5ssm(input_seq)  # shape (bsz, n_heads, d_input, n_blocks, seq_len)
 
     # Initialize S5SSM layer
@@ -189,6 +190,61 @@ def test_s5ssm_step(
         + f"P50: {jnp.percentile(err, 50):.1e}, "
         + f"P90: {jnp.percentile(err, 90):.1e}."
     )
+    numpy.testing.assert_allclose(ys_refr, ys_test, atol=atol, rtol=rtol)
+
+    assert x.dtype == jnp.array([], dtype="complex").dtype
+    
+
+@pytest.mark.parametrize("inner_factor, atol, rtol", [(1, 1e-8, 1e-7), (3, 1e-4, 1e-2)])
+def test_s5operator_step(
+    inner_factor, atol, rtol,
+    batch_size=64, seq_len=8, d_input=12,
+    ssm_size=4, ssm_blocks=1,
+):
+    """Test S5Operator autoregressive generation via `step` implementation.
+    
+    Given an input sequence, the autoregressively generated output sequence should be
+    the same as the output sequence produced in parallel by applying `__call__`.
+
+    Note: Equivalence between __call__ and step is only applicable for hyena_order = 2,
+    i.e. no hyena recurrence. If hyena_order > 2, then there is a for-loop that is operating
+    on a (mixed) projection that has been convolved with itself. This is not possible in
+    the AR mode, so it is not applicable to compare to hyena_order > 2.
+
+    Hyperparmeter settings impact the amount of propgated error. For example, we expect
+    longer sequences and larger state dimensions to increase amount of error between the
+    parallel `__call__` and the autoregressive `step`.
+    """
+
+    init_rng, data_rng = jr.split(DEFAULT_RNG)
+
+    # Generate random input sequence
+    input_seq = jr.normal(data_rng, shape=(batch_size, seq_len, d_input))
+
+    # Initialize S5Operator module
+    model = S5Operator(
+        d_input, n_layer=1, l_max=seq_len,
+        filter_cls='hyena_S5', ssm_size=ssm_size, ssm_blocks=ssm_blocks, filter_args=DEFAULT_S5SSM_KWARGS,
+        order=2, inner_factor=inner_factor, drop_rate=0.0,
+        short_filter_order=0,  # short_filter_order=0 required for comparison
+        )
+    model_variables = model.init(init_rng, jnp.zeros_like(input_seq), training=False)
+
+    # Generate reference output, using parallel scan
+    ys_refr = model.apply(model_variables, input_seq, training=False)
+
+    # -----------------------------------------------------------------------------------
+    # Generate output autoregressively
+    init_state = jnp.zeros((batch_size, ssm_size), dtype="complex")  # dtype="complex": allow jax backend to set correct precision
+    x, ys_test_T = jax.lax.scan(
+        lambda state, u: model.apply(model_variables, state, u, method='step'),
+        init_state, jnp.transpose(input_seq, (1,0,2))
+    )  # ys_test_T shape: (seq_len, bsz, d_input)
+
+    ys_test = jnp.transpose(ys_test_T, (1,0,2))  # now, (bsz, seq_len, d_input)
+
+    # -----------------------------------------------------------------------------------
+
     numpy.testing.assert_allclose(ys_refr, ys_test, atol=atol, rtol=rtol)
 
     assert x.dtype == jnp.array([], dtype="complex").dtype

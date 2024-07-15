@@ -135,45 +135,7 @@ class S5SSM(nn.Module):
                                 Discussed in https://arxiv.org/pdf/2206.11893.pdf.
         activation   (str):    type of activation to apply to SSM outputs
 
-    The state space model is parameterized in complex modal coordinates.
-    Consider the following real-valued state space model with state transtion matrix A,
-    state input matrix B, state emission matrix C, and input feedthrough matrix D:
-        z[i] = A z[i-1] + B u[i]
-        y[i] = C z[i] + D u[i]
-    The modal representation of this system uses the diagonaled state transition matrix
-    Lambda, where A = Vinv @ Lambda @ V, and transformed state x[i] = V @ z[i].
-    Then, the above system is equivalently expressed as
-        x[i] = Lambda x[i-1] + B_tilde u[i]
-        y[i] = C_tilde x[i] + D u[i]
-    where B_tilde = Vinv @ B and C_tilde = C @ V.
-
-    Args:
-        Lambda_re_init (float32): Real part of init diag state matrix  (P_,)
-        Lambda_im_init (float32): Imag part of init diag state matrix  (P_,)
-        V           (complex64): Eigenvectors used for init           (P,P_)
-        Vinv        (complex64): Inverse eigenvectors used for init   (P_,P)
-        H           (int32):     Feature dimension
-        P           (int32):     State dimension.
-            Denoted as P_ in docstrings. If conj_sym, P_ = P//2, where P is true state dimension
-            (referred to as 'local_P' in setup).
-        C_init      (string):    Method for initializing emissions matrix C. Options:
-            - 'trunc_standard_normal': Sample from truncated standard normal,
-                                       then apply modal transform, i.e. C_tilde = C @ V
-            - 'lecun_normal': Sample from Lecun_normal, then apply modal transform, i.e. C_tilde = C @ V.
-            - 'complex_normal': Directly sample a complex valued output matrix from standard normal.
-                                No further transformation applied, i.e. C_tilde = C.
-        dt_min:      (float32): minimum value to draw timescale values from when 
-                                initializing log_step
-        dt_max:      (float32): maximum value to draw timescale values from when 
-                                initializing log_step
-        conj_sym    (bool):    Whether conjugate symmetry is enforced
-        clip_eigs   (bool):    Whether to enforce left-half plane condition, i.e.
-                                constrain real part of eigenvalues to be negative. 
-                                True recommended for autoregressive task/unbounded sequence lengths
-                                Discussed in https://arxiv.org/pdf/2206.11893.pdf.
-        activation   (str):    type of activation to apply to SSM outputs
-
-    nn.Module params:
+    Trainable parameters:
         Lambda_re: Array[float32], (P_,). Real part of diagonal transition matrix.
         Lambda_im: Array[float32], (P_,). Imaginary part of diagonal transition matrix.
         B: Array[float32], (P_, H, 2).
@@ -183,18 +145,7 @@ class S5SSM(nn.Module):
         D: Array[float32], (H,). Diagonal feedthrough matrix.
         log_step: Array[float32], (H,1). Per-feature timescale discretization value.
     where P_ = P//2 if conj_sym else P_ = P
-        
-    nn.Module params:
-        Lambda_re: Array[float32], (P_,). Real part of diagonal transition matrix.
-        Lambda_im: Array[float32], (P_,). Imaginary part of diagonal transition matrix.
-        B: Array[float32], (P_, H, 2).
-            Real and imaginary part of input matrix, in modal_coordinates.
-        C: Array[float32], (H, state_dim, 2).
-            Real and imaginary part of state emissions matrix, in modal_coordinates.
-        D: Array[float32], (H,). Diagonal feedthrough matrix.
-        log_step: Array[float32], (H,1). Per-feature timescale discretization value.
-    where P_ = P//2 if conj_sym else P_ = P
-        
+                
     """
 
     Lambda_re_init: jax.Array
@@ -337,21 +288,19 @@ class S5SSM(nn.Module):
         Args:
             state: Array[complex64], shape (bsz, state_dim)
                 State at last timestep.
-            inpt: Array[float32], shape (bsz, n_heads, H, n_blocks)
-                The singleton sequence length dimension has been removed.
-                Otherwise, the (now 4-dim) shape is due to original Hyena implementation.
-                S5 assumes n_heads and n_seq_blocks are singleton dimensions.
+            inpt: Array[float32], shape (bsz, n_heads, H)
+                The (now 3-dim) shape is due to original Hyena implementation. S5 assumes
+                n_heads = 1. Seq length axes (i.e. n_blocks, seq_len) are singleton and omitted.
                 Using argument name `inpt` to avoid clash with built-in `input` function.
         
         Returns:
             new_state: Array[complex64], shape (bsz, state_dim)
-            output: Array[float32], shape (bsz, n_heads, H, n_blocks)
+            output: Array[float32], shape (bsz, n_heads, H)
                 Return in (new_state, output) order to be consistent with
                 output signature (carry, y) of scan functions, e.g. jax.lax.scan or nn.scan
         """
 
-        # Remove singleton axes
-        inpt = inpt[:, 0, :, 0]
+        inpt = inpt[:, 0, :]  # Remove singleton axes. Now, (bsz, H)
 
         # Apply single SSM step; vmap over bsz axis
         # Recall that we define our state-space model (in the real standard case) as
@@ -379,7 +328,7 @@ class S5SSM(nn.Module):
             raise NotImplementedError(
                 "Activation: {} not implemented".format(self.activation))
 
-        output = y[:,None,:,None]   # Now, (bsz, 1, H, 1)
+        output = y[:,None,:]   # Now, (bsz, 1, H)
         
         return new_state, output
 
@@ -535,12 +484,8 @@ class S5Operator(nn.Module):
         if self.l_max % self.num_blocks != 0:
             raise ValueError(f"Maximum sequence length {self.l_max} must be divisible by block dimension {self.num_blocks}")
 
-        if (self.filter_cls == 'hyena_S5'):
-            if (self.order > 2):
-                raise NotImplementedError(
-                    f"order > 2 recurrence is not yet supported for filter class {self.filter_cls},"
-                    f"but got order {self.order}."
-                )
+        if (self.order > 2):
+            print("WARNING: order > 2 recurrence is fine for parallel mode, but is erroneous in autoregressive mode.")
             
         if (self.num_heads > 1):
             raise ValueError(
@@ -588,12 +533,15 @@ class S5Operator(nn.Module):
                                         padding=self.short_filter_order - 1)
 
         if self.filter_cls == 'hyena_S5':
-            self.filter_fn = [init_S5SSM(self.d_model, self.ssm_size, self.ssm_blocks, filter_args) for _ in range(self.order-1)]
+            self.filter_fn = [
+                init_S5SSM(self.d_model * self.inner_factor, self.ssm_size, self.ssm_blocks, filter_args)
+                for _ in range(self.order-1)
+            ]
         else:
             raise NotImplementedError("filter {} not implemented".format(self.filter_cls))
 
     @nn.compact
-    def __call__(self, input_sequence, training):
+    def __call__(self, input_sequence, training: bool):
         """Apply order-N Hyena recurence to an input sequence
 
         Args:
@@ -674,3 +622,63 @@ class S5Operator(nn.Module):
             return y, None
 
         return y
+
+
+    def step(self, state, inpt):
+        """Apply order-N Hyena recurence to an input.
+
+        Only applicable if self.filter_cls is a module with a `step` function.
+
+        Args:
+            state: Array[float32], shape (bsz, ssm_size)
+                State of implicit filter at last time step.
+            inpt: Array[float32], shape (bsz, d_model).
+        
+        Returns:
+            new_state: Array[complex64], shape (bsz, ssm_size)
+            output: Array[float32], shape (bsz, d_output)
+        """      
+
+        # Make order+1 linear projections of the input, each with width (inner_factor * d_model,)
+        # These projections are denoted as (v, x1, ..., xN) in the Hyena paper (Defn. 3.1)
+        # u: shape (bsz, d_inner), where d_inner = (order+1) * (inner_factor * d_model)
+        u = self.in_proj(inpt)
+
+        uc = u  # Note: A short conv is typically applied in parallel-mode, but N/A in AR-mode
+
+        # Reshape linear projections for multi-headed operation (not implemented)
+        # and applying filter to blocks of the sequence length (not implemened).
+        d_inner = uc.shape[-1]
+        uc = rearrange(
+            uc, 'b (h v) -> b h v', h=self.num_heads, v=d_inner // self.num_heads,  # h=1
+        ) # now, (bsz, n_heads, (order+1)*scaled_d_head),  where scaled_d_head = inner_factor * d_head
+        
+        *x, v = np.split(uc, self.order+1, axis=2) # (order+1,) projections, of shape (bsz, n_heads, scaled_d_head)
+
+        # Work through linear projections in reverse (Question: Is doing this in reverse important??)
+        # NOTE: Retaining for-loop for consistency with __call__, but should NOT be
+        #       looped through more than once, i.e. order = 2). Else, not equivalent to __call__.
+        for o, x_o in enumerate(reversed(x[1:])):
+            if self.outer_mixing:
+                raise NotImplementedError("outer mixing not implemented for hyena_S5 yet")
+            else:
+                v = v * x_o
+
+            # Apply long convolution to projection
+            state, v = self.filter_fn[o].step(state, v)
+
+            # Apply another linear projection before the next recurrent. Not useful if order=2.
+            if self.post_order_ffn:
+                w = self.ord_proj_w[o]
+                v = mul_sum(
+                    rearrange(w, 'h1 h2 -> 1 h1 h2 1'), rearrange(v, 'b h v -> b h 1 v')
+                )  # Not verified!
+
+        v = v * x[0]  # elementwise-multiply with final projection
+        
+        # Finally, push mixed and convolved projections through activation and output
+        v = rearrange(v, 'b h v -> b (h v)', h=self.num_heads)  # now, (bsz, d_inner)
+        y = self.activation(v)
+        y = self.out_proj(y)
+
+        return state, y
