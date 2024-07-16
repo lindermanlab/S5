@@ -90,6 +90,52 @@ class Mlp(nn.Module):
 
 
 class Block(nn.Module):
+    """Flash Attention prenorm Transformer block.
+    
+    For prenorm=True, this Block has a slightly different structure compared to a regular
+    prenorm Transformer block. The regular block structure is (Xiong, Yang et al. 2020)
+        LN -> <MIXER> -> Dropout -> Add -> LN -> MLP -> Dropout -> Add.
+    Here, the prenorm block structure is
+        Dropout -> Add -> LN -> <MIXER> -> Dropout -> Add -> LN -> MLP,
+    returning both the hidden_states (MLP outputs) and the residual.
+    This is for performance reasons, as we can fuse the Dropout, Add and LayerNorm.
+    The residual needs to be provided (except for the very first block).
+    
+    For prenorm=False, this Block has the same structure as a regular postnorm Transformer block:
+        <MIXER> -> Dropout -> Add -> LN -> MLP -> Dropout -> Add -> LN.
+
+    Modified from
+    https://github.com/HazyResearch/flash-attention/blob/main/flash_attn/modules/block.py
+    
+    TODO Review docstring to ensure all applicable. This was copied from the flash-attention module.
+
+    Arguments
+        dim: int
+        n_layer: int. Number of model layers used for init. TODO Documentation needed
+        mixer_cls: nn.Module
+            Expected to be instantiated
+        mlp_cls: nn.Module
+        norm_cls: nn.Module. default: nn.LayerNorm.
+        dropout_cls: nn.Module. default: nn.Dropout.
+        prenorm: bool. default=True.
+            If True, use prenorm block structure; else use postnorm.
+            See docstring for more details.
+        resid_dropout1: float. default: 0.0
+        resid_dropout2: float. default: 0.0
+        drop_path1_rate: float. default: 0.0
+        drop_path2_rate: float. default: 0.0
+        return_residual: bool. default: False
+            Only used if prenorm=False. If True, each sub-layer (mixer and mlp) returns
+            its residual. This can improve performance because it allows fusing of the
+            backward pass of nn.Linear with the residual connection.
+
+    References
+        Xiong*, Yang* et al. (ICLR 2020).
+        "On Layer Normalization in the Transformer Architecture"
+        https://arxiv.org/abs/2002.04745
+
+    """
+
     dim: int
     n_layer: int  # This is number of model layers used for init
     mixer_cls: nn.Module = None
@@ -102,37 +148,19 @@ class Block(nn.Module):
     drop_path1_rate: float = 0.0
     drop_path2_rate: float = 0.0
     return_residual: bool = False
-    # residual_in_fp32: bool = False
 
     def setup(self):
-        """
-        From https://github.com/HazyResearch/flash-attention/blob/main/flash_attn/modules/block.py
-        For prenorm=True, this Block has a slightly different structure compared to a regular
-        prenorm Transformer block.
-        The standard block is: LN -> MHA -> Dropout -> Add -> LN -> MLP -> Dropout -> Add.
-        [Ref: https://arxiv.org/abs/2002.04745]
-        Here we have: Dropout -> Add -> LN -> MHA -> Dropout -> Add -> LN -> MLP, returning both
-        the hidden_states (output of the MLP) and the residual.
-        This is for performance reasons, as we can fuse the dropout, add and LayerNorm.
-        The residual needs to be provided (except for the very first block).
-        For prenorm=False, this Block has the same structure as a regular postnorm Transformer
-        block: MHA -> Dropout -> Add -> LN -> MLP -> Dropout -> Add -> LN.
-        return_residual: whether each of the sub-layers (mixer and mlp) will return the residual.
-        This is for performance reason: for post-norm architecture, returning the input allows us
-        to fuse the backward of nn.Linear with the residual connection.
-        """
-        # if self.residual_in_fp32:
-        #     assert self.prenorm, 'residual_in_fp32 is only compatible with prenorm=True'
         if self.mixer_cls is None:
             raise NotImplementedError("MHA not implemented")
             # mixer_cls = partial(MHA, num_heads=dim // 64)
-        if self.mlp_cls is None:
-            self.mlp_cls = partial(Mlp, hidden_features=4 * self.dim)
-        # self.mixer = self.mixer_cls(self.dim)
         self.mixer = self.mixer_cls
         self.dropout1 = partial(self.dropout_cls, self.resid_dropout1)
         self.drop_path1 = StochasticDepth(p=self.drop_path1_rate, mode='row')
         self.norm1 = self.norm_cls()
+
+        # Define MLP
+        if self.mlp_cls is None:
+            self.mlp_cls = partial(Mlp, hidden_features=4 * self.dim)        
         self.mlp = self.mlp_cls(self.dim, self.n_layer)
         if not isinstance(self.mlp, Identity):
             # TODO: Check that this path works
@@ -144,6 +172,7 @@ class Block(nn.Module):
     def __call__(self, hidden_states, training, residual=None,
                  mixer_subset=None, mixer_kwargs=None):
         r"""Pass the input through the encoder layer.
+
         Args:
             hidden_states: the sequence to the encoder layer (required).
             training: bool to control dropout
@@ -151,8 +180,12 @@ class Block(nn.Module):
             mixer_subset: for cross-attention only. If not None, will take a subset of x
                 before applying the query projection. Useful for e.g., ViT where we only care
                 about the CLS token in the last layer.
+            mixer_kwargs: dict. default=None.
+                Keyword arguments for mixer class. Only used if mixer_cls=="MHA" (not implemented)
         """
         if self.prenorm:
+            # these three lines seem to perform triton `layer_norm_fn`:
+            # https://github.com/Dao-AILab/flash-attention/blob/74b0761ff7efc7b90d4e5aeb529c1b2a09a7458c/flash_attn/ops/triton/layer_norm.py
             dropped = self.drop_path1(self.dropout1(deterministic=not training)(hidden_states), training)
             residual = (dropped + residual) if residual is not None else dropped
             hidden_states = self.norm1(residual)
@@ -192,6 +225,68 @@ class Block(nn.Module):
 
             return hidden_states
 
+
+    def step(self, mixer_state, hidden_state, residual=None, mixer_subset=None, mixer_kwargs=None):
+        """Apply Transformer block to a single input.
+        
+        Args:
+            mixer_state: Array[float32], shape (bsz, ssm_size)
+                State of mixer at last time step.
+            hidden_state: Array[float32], shape (bsz, d_model).
+            residual: Optional. Array[float32], shape (bsz, d_model). default=None.
+            mixer_subset: Not used, retained for consistency with __call__.
+            mixer_kwargs: dict. default=None.
+                Keyword arguments for mixer class. Only used if mixer_cls=="MHA" (not implemented)
+        
+        Returns:
+            new_mixer_state: Array[complex64], shape (bsz, ssm_size)
+            output: Array[float32], shape (bsz, d_output)
+        """
+
+        if mixer_kwargs is None:
+            mixer_kwargs = {}
+            
+        if self.prenorm:
+            dropped = hidden_state  # skipping drop path
+            residual = (dropped + residual) if residual is not None else dropped
+            hidden_state = self.norm1(residual)
+
+            if mixer_subset is not None:
+                mixer_kwargs['mixer_subset'] = mixer_subset
+            
+            new_mixer_state, hidden_state = self.mixer.step(mixer_state, hidden_state, **mixer_kwargs)
+
+            if mixer_subset is not None:
+                residual = residual[:, mixer_subset]  # Take a subset before applying the query projectin.
+
+            if not isinstance(self.mlp, Identity):
+                dropped = hidden_state  # skipping drop path
+                residual = (dropped + residual) if residual is not None else dropped
+                hidden_state = self.norm2(residual)
+
+                hidden_state = self.mlp(hidden_state)
+
+            return new_mixer_state, hidden_state, residual
+
+        else:
+            assert residual is None
+            new_mixer_state, mixer_out = self.mixer.step(mixer_state, hidden_state, **mixer_kwarg)
+            
+            if self.return_residual:  # mixer out is actually a pair here
+                mixer_out, hidden_state = mixer_out
+
+            hidden_state = self.norm1(mixer_out + hidden_state)  # skipping drop path
+
+            if not isinstance(self.mlp, Identity):
+                mlp_out = self.mlp(hidden_state)
+                if self.return_residual:  # mlp out is actually a pair here
+                    mlp_out, hidden_state = mlp_out
+
+                hidden_state = self.norm2(mlp_out + hidden_state)  # skipping drop path
+
+            return new_mixer_state, hidden_state
+
+        
 
 def create_mixer_cls(layer=None, d_model=None, n_layer=None, l_max=None, layer_kwargs=None,
                      attn_layer_idx=None, attn_cfg=None, layer_idx=None):
