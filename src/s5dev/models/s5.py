@@ -332,6 +332,7 @@ class S5SSM(nn.Module):
         
         return new_state, output
 
+
 def init_S5SSM(d_model, ssm_size, blocks, ssm_args):
     """Convenience function that will be used to initialize the SSM.
        Same arguments as defined in S5SSM above."""
@@ -360,6 +361,20 @@ def init_S5SSM(d_model, ssm_size, blocks, ssm_args):
                  H=d_model,
                  P=ssm_size,
                  **ssm_args)
+
+
+class IdentitySSM(nn.Module):
+    """No-op sequence-to-sequence module.
+
+    For a given input sequence, returns sequence. Used for debugging.
+    """
+
+    def __call__(self, input_sequence, training=True):
+        return input_sequence
+
+    def step(self, state, inpt, training=False):
+        return state, inpt
+
 
 
 class S5Operator(nn.Module):
@@ -537,6 +552,8 @@ class S5Operator(nn.Module):
                 init_S5SSM(self.d_model * self.inner_factor, self.ssm_size, self.ssm_blocks, filter_args)
                 for _ in range(self.order-1)
             ]
+        elif self.filter_cls == 'identity':
+            self.filter_fn = [IdentitySSM() for _ in range(self.order-1)]
         else:
             raise NotImplementedError("filter {} not implemented".format(self.filter_cls))
 

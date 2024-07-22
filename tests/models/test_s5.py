@@ -1,10 +1,8 @@
 """
-To test in double precision, set
-    export JAX_ENABLE_X64=True
-    pytest <this_file>.py
+We test everything in double-precision mode (set at top of file)
+to control for errors and lack of equivalency due to numerical imprecision.
 
-To view more verbose messages, call
-    pytest -s <this_file>.py
+Identified sources of numerical imprecision are noted in the respective test functions.
 """
 
 import pytest
@@ -22,6 +20,8 @@ from s5dev.models.s5 import (
     S5Operator,
     S5SSM
 )
+
+jax.config.update("jax_enable_x64", True)
 
 DEFAULT_RNG = jr.PRNGKey(55553)
 
@@ -84,7 +84,6 @@ def simple_apply_ssm(A, B, C, D, init_state, input_seq, conj_sym):
 @pytest.mark.parametrize("clip_eigs", [True, False])
 def test_apply_ssm(
     C_init, conj_sym, clip_eigs, batch_size=8, seq_len=128, d_input=16, d_state=64, n_blocks=4,
-    atol=1e-4, rtol=1e-1
 ):
     """Evaluate equivalence of `apply_ssm` using parallel scan to simply for loop implementation."""
 
@@ -135,8 +134,8 @@ def test_apply_ssm(
                 + f"P90: {jnp.percentile(err, 90):.1e}). ")
     print(msg)
 
-    numpy.testing.assert_allclose(xs_refr, xs_test, atol=atol, rtol=rtol)
-    numpy.testing.assert_allclose(ys_refr, ys_test, atol=atol, rtol=rtol)
+    numpy.testing.assert_allclose(xs_refr, xs_test)
+    numpy.testing.assert_allclose(ys_refr, ys_test)
 
     assert xs_refr.dtype == jnp.array([], dtype="complex").dtype
 
@@ -145,7 +144,7 @@ def test_apply_ssm(
 @pytest.mark.parametrize("conj_sym", [True, False])
 @pytest.mark.parametrize("clip_eigs", [True, False])
 def test_s5ssm_step(
-    C_init, conj_sym, clip_eigs, batch_size=64, seq_len=8, d_input=12, d_state=4, n_blocks=1, atol=1e-8, rtol=1e-7
+    C_init, conj_sym, clip_eigs, batch_size=64, seq_len=8, d_input=12, d_state=4, n_blocks=1
 ):
     """Test S5SSM autoregressive generation via `step` implementation.
     
@@ -157,7 +156,7 @@ def test_s5ssm_step(
     parallel `__call__` and the autoregressive `step`.
     """
 
-    init_rng, data_rng = jr.split(DEFAULT_RNG, num=3)
+    init_rng, data_rng = jr.split(DEFAULT_RNG)
 
     ssm_kwargs = DEFAULT_S5SSM_KWARGS | {
         "C_init": C_init, "conj_sym": conj_sym, "clip_eigs": clip_eigs
@@ -178,10 +177,10 @@ def test_s5ssm_step(
     init_state = jnp.zeros((batch_size, model.P), dtype="complex")  # dtype="complex": allow jax backend to set correct precision
     x, ys_test_T = jax.lax.scan(
         lambda state, u_T: model.apply(model_variables, state, u_T.T, method='step'),
-        init_state, input_seq.T
-    )  # ys_test_T shape: (seq_len, bsz, n_heads, H, n_blocks)
+        init_state, input_seq[...,0,:].T
+    )  # ys_test_T shape: (seq_len, bsz, n_heads, H)
 
-    ys_test = jnp.transpose(ys_test_T, (1,2,3,4,0))  # now, (bsz, 1, d_input, 1, seq_len)
+    ys_test = jnp.transpose(ys_test_T[...,None], (1,2,3,4,0))  # now, (bsz, 1, d_input, 1, seq_len)
 
     # To see these statements in console, run `pytest -s ...`
     err = jnp.abs(ys_refr-ys_test)
@@ -190,14 +189,15 @@ def test_s5ssm_step(
         + f"P50: {jnp.percentile(err, 50):.1e}, "
         + f"P90: {jnp.percentile(err, 90):.1e}."
     )
-    numpy.testing.assert_allclose(ys_refr, ys_test, atol=atol, rtol=rtol)
+    numpy.testing.assert_allclose(ys_refr, ys_test)
 
     assert x.dtype == jnp.array([], dtype="complex").dtype
     
 
-@pytest.mark.parametrize("inner_factor, atol, rtol", [(1, 1e-8, 1e-7), (3, 1e-4, 1e-2)])
+@pytest.mark.parametrize("filter_cls", ["identity", "hyena_S5"])
+@pytest.mark.parametrize("inner_factor", [1, 3])
 def test_s5operator_step(
-    inner_factor, atol, rtol,
+    filter_cls, inner_factor,
     batch_size=64, seq_len=8, d_input=12,
     ssm_size=4, ssm_blocks=1,
 ):
@@ -214,6 +214,12 @@ def test_s5operator_step(
     Hyperparmeter settings impact the amount of propgated error. For example, we expect
     longer sequences and larger state dimensions to increase amount of error between the
     parallel `__call__` and the autoregressive `step`.
+
+    Identified sources of numerical imprecision
+    -------------------------------------------
+    The S5Operator's linear input projection (self.in_proj) was found to introduce O(1e-3)
+    error when inner_factor >= 3.
+
     """
 
     init_rng, data_rng = jr.split(DEFAULT_RNG)
@@ -224,7 +230,7 @@ def test_s5operator_step(
     # Initialize S5Operator module
     model = S5Operator(
         d_input, n_layer=1, l_max=seq_len,
-        filter_cls='hyena_S5', ssm_size=ssm_size, ssm_blocks=ssm_blocks, filter_args=DEFAULT_S5SSM_KWARGS,
+        filter_cls=filter_cls, ssm_size=ssm_size, ssm_blocks=ssm_blocks, filter_args=DEFAULT_S5SSM_KWARGS,
         order=2, inner_factor=inner_factor, drop_rate=0.0,
         short_filter_order=0,  # short_filter_order=0 required for comparison
         )
@@ -245,7 +251,7 @@ def test_s5operator_step(
 
     # -----------------------------------------------------------------------------------
 
-    numpy.testing.assert_allclose(ys_refr, ys_test, atol=atol, rtol=rtol)
+    numpy.testing.assert_allclose(ys_refr, ys_test)
 
     assert x.dtype == jnp.array([], dtype="complex").dtype
     

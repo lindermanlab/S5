@@ -5,7 +5,9 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 
-from s5dev.models.simple_lm import create_block
+from s5dev.models.simple_lm import create_block, LMBackbone
+
+jax.config.update('jax_enable_x64', True)
 
 DEFAULT_RNG = jr.PRNGKey(21350)
 
@@ -15,8 +17,8 @@ DEFAULT_S5OPERATOR_KWARGS = dict(
     order = 2,
     inner_factor = 1,
     drop_rate = 0.0,
-    filter_cls = 'hyena_S5',
     short_filter_order = 0,  # must be 0 in order to compare __call__ and step implementations
+    filter_cls = 'hyena_S5',
     filter_args = dict(
         C_init = "complex_normal",
         dt_min = 0.001,
@@ -28,7 +30,7 @@ DEFAULT_S5OPERATOR_KWARGS = dict(
 )
 
 
-def test_block_step(layer='s5_operator', batch_size=64, seq_len=8, d_input=12, atol=1e-4, rtol=1e-3):
+def test_block_step(layer='s5_operator', batch_size=64, seq_len=8, d_input=12, atol=1e-8, rtol=1e-3):
     """Test Block autoregressive generation via `step` implementation.
     
     Only applicable for layers with `step` function implemented, e.g. layer='s5_operator'.
@@ -82,5 +84,57 @@ def test_block_step(layer='s5_operator', batch_size=64, seq_len=8, d_input=12, a
 
     numpy.testing.assert_allclose(ys_refr, ys_test, atol=atol, rtol=rtol)
     numpy.testing.assert_allclose(residuals_refr, residuals_test, atol=atol, rtol=rtol)
+
+    assert x.dtype == jnp.array([], dtype="complex").dtype
+
+
+@pytest.mark.parametrize("n_layer", [2,5])
+def test_lmbackbone_step(n_layer, layer='s5_operator',
+                         batch_size=64, seq_len=8, d_input=4, 
+                         atol=1e-8, rtol=1e-4):
+    """Test Block autoregressive generation via `step` implementation.
+    
+    Only applicable for layers with `step` function implemented, e.g. layer='s5_operator'.
+    """
+
+    init_rng, data_rng = jr.split(DEFAULT_RNG)
+
+    input_seq = jr.normal(data_rng, shape=(batch_size, seq_len, d_input))
+
+    # Initialize Block
+    if layer == 's5_operator':
+        layer_kwargs = DEFAULT_S5OPERATOR_KWARGS
+    
+    model = LMBackbone(
+        d_input, n_layer=n_layer, d_inner=4*d_input,
+        layer=layer, layer_kwargs=layer_kwargs, l_max=seq_len,
+        resid_dropout=0.0, embed_dropout=0.0,
+    )
+    model_variables = model.init(init_rng, jnp.zeros_like(input_seq), training=False)
+
+    # Generate reference output, using __call__
+    ys_refr, _ = model.apply(model_variables, input_seq, training=False)
+
+    # -----------------------------------------------------------------------------------
+    # Generate output autoregressively
+    init_state = jnp.zeros((batch_size, layer_kwargs['ssm_size']), dtype="complex")  # dtype="complex": allow jax backend to set correct precision
+    
+    with jax.disable_jit():
+        x, ys_test_T = jax.lax.scan(
+            lambda state, inpt: model.apply(model_variables, state, inpt, method='step'),
+            init_state, jnp.transpose(input_seq, (1,0,2))
+        )  # ys_test_T shape: (seq_len, bsz, d_input)
+
+    ys_test = jnp.transpose(ys_test_T, (1,0,2))  # now, (bsz, seq_len, d_input)
+
+    # -----------------------------------------------------------------------------------
+
+    y_err = jnp.abs(ys_refr-ys_test)
+    msg = (f"(mean: {jnp.mean(y_err):.1e}, "
+          + f"P50: {jnp.percentile(y_err, 50):.1e}, "
+          + f"P90: {jnp.percentile(y_err, 90):.1e}). ")
+    print(msg)
+
+    numpy.testing.assert_allclose(ys_refr, ys_test, atol=atol, rtol=rtol)
 
     assert x.dtype == jnp.array([], dtype="complex").dtype

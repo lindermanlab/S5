@@ -372,7 +372,7 @@ class LMBackbone(nn.Module):
     n_layer: int
         Number of SSM blocks
     d_inner: int
-        Model hidden state dimension.
+        Model hidden state dimension. Harcoded internally to be 4*d_model.
     layer: str, optional. default=None
         Filter class for SSM blocks, one of {'hyena', 'S5_operator'}
         If None, uses multi-headed attention; other parameters required.
@@ -444,8 +444,9 @@ class LMBackbone(nn.Module):
         self.ln_f = nn.LayerNorm(epsilon=self.layer_norm_epsilon)
 
     @nn.compact
-    def __call__(self, hidden_states, training):
-        residual = None
+    def __call__(self, hidden_states, training=True):
+        
+        residual=None
 
         for layer in self.layers:
             hidden_states, residual = layer(hidden_states, training, residual)
@@ -454,7 +455,24 @@ class LMBackbone(nn.Module):
         residual = (dropped + residual) if residual is not None else dropped
         hidden_states = self.ln_f(residual)
 
-        return hidden_states
+        return hidden_states, residual
+
+    def step(self, state, hidden_state):
+        """Apply LMBackbone to a single input.
+        
+        Args
+            state: jax.Array, (bsz,...)
+                State of layer (blocks).
+            hidden_state: jax.array, (bsz, d_inner). Equivalent to input_embeddings
+        """
+        residual = None
+        for layer in self.layers:
+            state, hidden_state, residual = layer.step(state, hidden_state, residual)
+
+        dropped = hidden_state
+        residual = (dropped + residual) if residual is not None else dropped
+        hidden_state = self.ln_f(residual)
+        return state, hidden_state
 
 
 class SimpleLMHeadModel(nn.Module):
