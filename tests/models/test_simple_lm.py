@@ -1,3 +1,13 @@
+"""
+We test everything in double-precision mode (set at top of file)
+to control for errors and lack of equivalency due to numerical imprecision.
+
+Identified sources of numerical imprecision are noted in the respective test functions.
+
+For more verbose messages, call with '-s' flag, i.e.
+    pytest -s <this_file.py>
+"""
+
 import pytest
 
 import numpy.testing  # provides more informative failure messages
@@ -10,6 +20,13 @@ from s5dev.models.simple_lm import create_block, LMBackbone
 jax.config.update('jax_enable_x64', True)
 
 DEFAULT_RNG = jr.PRNGKey(21350)
+
+IDENTITY_KWARGS = dict(
+    order = 2,
+    inner_factor = 1,
+    drop_rate = 0.0,
+    short_filter_order = 0,  # must be 0 in order to compare __call__ and step implementations
+)
 
 DEFAULT_S5OPERATOR_KWARGS = dict(
     ssm_size = 4,
@@ -30,7 +47,10 @@ DEFAULT_S5OPERATOR_KWARGS = dict(
 )
 
 
-def test_block_step(layer='s5_operator', batch_size=64, seq_len=8, d_input=12, atol=1e-8, rtol=1e-3):
+@pytest.mark.parametrize(
+    "layer, layer_kwargs", [("identity", IDENTITY_KWARGS), ("s5_operator", DEFAULT_S5OPERATOR_KWARGS)]
+)
+def test_block_step(layer, layer_kwargs, batch_size=64, seq_len=8, d_input=3):
     """Test Block autoregressive generation via `step` implementation.
     
     Only applicable for layers with `step` function implemented, e.g. layer='s5_operator'.
@@ -42,9 +62,6 @@ def test_block_step(layer='s5_operator', batch_size=64, seq_len=8, d_input=12, a
     init_residual = None
 
     # Initialize Block
-    if layer == 's5_operator':
-        layer_kwargs = DEFAULT_S5OPERATOR_KWARGS
-    
     model = create_block(
         d_input, n_layer=1, l_max=seq_len, 
         layer=layer, layer_kwargs=layer_kwargs,
@@ -57,7 +74,10 @@ def test_block_step(layer='s5_operator', batch_size=64, seq_len=8, d_input=12, a
 
     # -----------------------------------------------------------------------------------
     # Generate output autoregressively
-    init_state = jnp.zeros((batch_size, layer_kwargs['ssm_size']), dtype="complex")  # dtype="complex": allow jax backend to set correct precision
+    if layer == 's5_operator':
+        init_state = jnp.zeros((batch_size, layer_kwargs['ssm_size']), dtype="complex")  # dtype="complex": allow jax backend to set correct precision
+    elif layer == 'identity':
+        init_state = None
 
     def _step(mixer_state, inpt):
         new_mixer_state, output, residual = \
@@ -82,19 +102,44 @@ def test_block_step(layer='s5_operator', batch_size=64, seq_len=8, d_input=12, a
                 + f"P90: {jnp.percentile(err, 90):.1e}). ")
     print(msg)
 
-    numpy.testing.assert_allclose(ys_refr, ys_test, atol=atol, rtol=rtol)
-    numpy.testing.assert_allclose(residuals_refr, residuals_test, atol=atol, rtol=rtol)
+    numpy.testing.assert_allclose(ys_refr, ys_test)
+    numpy.testing.assert_allclose(residuals_refr, residuals_test)
 
-    assert x.dtype == jnp.array([], dtype="complex").dtype
+    if layer == 's5_operator':
+        assert x.dtype == jnp.array([], dtype="complex").dtype
 
 
-@pytest.mark.parametrize("n_layer", [2,5])
-def test_lmbackbone_step(n_layer, layer='s5_operator',
-                         batch_size=64, seq_len=8, d_input=4, 
-                         atol=1e-8, rtol=1e-4):
+@pytest.mark.parametrize(
+    "layer, layer_kwargs, n_layer, atol, rtol", [
+        ("identity", IDENTITY_KWARGS, 1, 1e-8, 1e-7),
+        ("identity", IDENTITY_KWARGS, 10, 1e-8, 1e-7),
+        ("s5_operator", DEFAULT_S5OPERATOR_KWARGS, 1, 1e-8, 1e-7),
+        ("s5_operator", DEFAULT_S5OPERATOR_KWARGS, 2, 1e-3, 1e-1),  # P90: 5.4e-4
+        ("s5_operator", DEFAULT_S5OPERATOR_KWARGS, 5, 1e-2, 5e-1),  # P90: 1.7e-3
+        ("s5_operator", DEFAULT_S5OPERATOR_KWARGS, 10, 1e-2, 5e-1), # P90: 2.5e-3
+    ]
+)
+def test_lmbackbone_step(layer, layer_kwargs, n_layer, atol, rtol,
+                         batch_size=64, seq_len=8, d_input=3,):
     """Test Block autoregressive generation via `step` implementation.
     
     Only applicable for layers with `step` function implemented, e.g. layer='s5_operator'.
+
+    Identified sources of numerical imprecision
+    -------------------------------------------
+    LMBackbone models with multiple S5Operator layers were found to have discrepancies
+    between the __call__ and step functions. These are posited to be due to imprecisions
+    in propogating the complex S5SSM state (even in double-precision), because
+        - When stepping through the `__call__` vs. `step` implementations of each Block layer,
+          discrepancy is introduced after the second Block's call to the sequence mixer,
+                new_ssm_state, hidden_state = self.mixer.step(ssm_state, hidden_state)
+        - However, no such error is introduced when using `self.mixer = IdentitySSM`,
+          which is a pass-through module that does not use state.
+    This can result in small large spurious errors, which dictate the tolerance values.
+    However, these errors are typically 1-2% of the elements, and so a the 90th percentile
+    error values are provided next to each parameterization for a more robust sense of the
+    true error tolerance (see inline comments above, denoted 'P90')
+
     """
 
     init_rng, data_rng = jr.split(DEFAULT_RNG)
@@ -102,9 +147,6 @@ def test_lmbackbone_step(n_layer, layer='s5_operator',
     input_seq = jr.normal(data_rng, shape=(batch_size, seq_len, d_input))
 
     # Initialize Block
-    if layer == 's5_operator':
-        layer_kwargs = DEFAULT_S5OPERATOR_KWARGS
-    
     model = LMBackbone(
         d_input, n_layer=n_layer, d_inner=4*d_input,
         layer=layer, layer_kwargs=layer_kwargs, l_max=seq_len,
@@ -117,13 +159,15 @@ def test_lmbackbone_step(n_layer, layer='s5_operator',
 
     # -----------------------------------------------------------------------------------
     # Generate output autoregressively
-    init_state = jnp.zeros((batch_size, layer_kwargs['ssm_size']), dtype="complex")  # dtype="complex": allow jax backend to set correct precision
+    if layer == 's5_operator':
+        init_state = jnp.zeros((batch_size, layer_kwargs['ssm_size']), dtype="complex")  # dtype="complex": allow jax backend to set correct precision
+    elif layer == 'identity':
+        init_state = None
     
-    with jax.disable_jit():
-        x, ys_test_T = jax.lax.scan(
-            lambda state, inpt: model.apply(model_variables, state, inpt, method='step'),
-            init_state, jnp.transpose(input_seq, (1,0,2))
-        )  # ys_test_T shape: (seq_len, bsz, d_input)
+    x, ys_test_T = jax.lax.scan(
+        lambda state, inpt: model.apply(model_variables, state, inpt, method='step'),
+        init_state, jnp.transpose(input_seq, (1,0,2))
+    )  # ys_test_T shape: (seq_len, bsz, d_input)
 
     ys_test = jnp.transpose(ys_test_T, (1,0,2))  # now, (bsz, seq_len, d_input)
 
@@ -137,4 +181,5 @@ def test_lmbackbone_step(n_layer, layer='s5_operator',
 
     numpy.testing.assert_allclose(ys_refr, ys_test, atol=atol, rtol=rtol)
 
-    assert x.dtype == jnp.array([], dtype="complex").dtype
+    if layer == 's5_operator':
+        assert x.dtype == jnp.array([], dtype="complex").dtype

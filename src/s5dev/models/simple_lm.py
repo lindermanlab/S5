@@ -5,6 +5,7 @@ import math
 
 from flax import linen as nn
 from flax.linen.initializers import normal as flax_normal
+import jax
 import jax.numpy as np
 
 from s5dev.models.s5 import S5Operator
@@ -255,7 +256,7 @@ class Block(nn.Module):
                 mixer_kwargs['mixer_subset'] = mixer_subset
             
             new_mixer_state, hidden_state = self.mixer.step(mixer_state, hidden_state, **mixer_kwargs)
-
+            
             if mixer_subset is not None:
                 residual = residual[:, mixer_subset]  # Take a subset before applying the query projectin.
 
@@ -306,6 +307,9 @@ def create_mixer_cls(layer=None, d_model=None, n_layer=None, l_max=None, layer_k
         elif layer.lower() == "s5_operator":
             mixer_cls = S5Operator(d_model, n_layer, l_max, **layer_kwargs)
         
+        elif layer.lower() == "identity":
+            mixer_cls = S5Operator(d_model, n_layer, l_max, filter_cls='identity', **layer_kwargs)
+
         else:
             raise ValueError(
                 f"Expected layer to be one of 'hyena' or 's5_operator', but got {layer}."
