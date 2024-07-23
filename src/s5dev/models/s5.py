@@ -80,6 +80,10 @@ def apply_ssm(input_seq, Lambda_bar, B_bar, C_tilde, D, conj_sym):
     # Apply state dynamics using parallel scan
     Lambda_elements = np.tile(Lambda_bar, reps=(len(input_seq), 1))  # shape (L,P)
     Bu_elements = jax.vmap(lambda u: B_bar @ u)(input_seq)  # shape (L,P)
+    
+    # Apply state dynamics using parallel scan
+    Lambda_elements = np.tile(Lambda_bar, reps=(len(input_seq), 1))  # shape (L,P)
+    Bu_elements = jax.vmap(lambda u: B_bar @ u)(input_seq)  # shape (L,P)
 
     _, xs = jax.lax.associative_scan(binary_operator, (Lambda_elements, Bu_elements))
 
@@ -91,20 +95,6 @@ def apply_ssm(input_seq, Lambda_bar, B_bar, C_tilde, D, conj_sym):
 
 
 class S5SSM(nn.Module):
-    Lambda_re_init: jax.Array
-    Lambda_im_init: jax.Array
-    V: jax.Array
-    Vinv: jax.Array
-
-    H: int
-    P: int
-    C_init: str
-    dt_min: float
-    dt_max: float
-    conj_sym: bool = True
-    clip_eigs: bool = False
-    activation: str = "gelu"
-
     """ The S5 SSM
 
     The state space model is parameterized in complex modal coordinates.
@@ -145,7 +135,7 @@ class S5SSM(nn.Module):
                                 Discussed in https://arxiv.org/pdf/2206.11893.pdf.
         activation   (str):    type of activation to apply to SSM outputs
 
-    nn.Module params:
+    Trainable parameters:
         Lambda_re: Array[float32], (P_,). Real part of diagonal transition matrix.
         Lambda_im: Array[float32], (P_,). Imaginary part of diagonal transition matrix.
         B: Array[float32], (P_, H, 2).
@@ -155,8 +145,23 @@ class S5SSM(nn.Module):
         D: Array[float32], (H,). Diagonal feedthrough matrix.
         log_step: Array[float32], (H,1). Per-feature timescale discretization value.
     where P_ = P//2 if conj_sym else P_ = P
-        
+                
     """
+
+    Lambda_re_init: jax.Array
+    Lambda_im_init: jax.Array
+    V: jax.Array
+    Vinv: jax.Array
+
+    H: int
+    P: int
+    C_init: str
+    dt_min: float
+    dt_max: float
+    conj_sym: bool = True
+    clip_eigs: bool = False
+    activation: str = "gelu"
+
 
     def setup(self):
         """Initializes parameters once and performs discretization each time
@@ -239,7 +244,12 @@ class S5SSM(nn.Module):
                 The 5-dimensional is due to the shape imposed by the original Hyena implementation.
                 S5 assumes n_heads and n_seq_blocks are singleton dimensions.
         
+            input_sequence: Array[float32], shape (bsz, n_heads, H, n_seq_blocks, L)
+                The 5-dimensional is due to the shape imposed by the original Hyena implementation.
+                S5 assumes n_heads and n_seq_blocks are singleton dimensions.
+        
         Returns:
+            output_sequence Array[float32](bsz, n_heads, H, n_seq_blocks, L)
             output_sequence Array[float32](bsz, n_heads, H, n_seq_blocks, L)
         """
 
@@ -278,21 +288,19 @@ class S5SSM(nn.Module):
         Args:
             state: Array[complex64], shape (bsz, state_dim)
                 State at last timestep.
-            inpt: Array[float32], shape (bsz, n_heads, H, n_blocks)
-                The singleton sequence length dimension has been removed.
-                Otherwise, the (now 4-dim) shape is due to original Hyena implementation.
-                S5 assumes n_heads and n_seq_blocks are singleton dimensions.
+            inpt: Array[float32], shape (bsz, n_heads, H)
+                The (now 3-dim) shape is due to original Hyena implementation. S5 assumes
+                n_heads = 1. Seq length axes (i.e. n_blocks, seq_len) are singleton and omitted.
                 Using argument name `inpt` to avoid clash with built-in `input` function.
         
         Returns:
             new_state: Array[complex64], shape (bsz, state_dim)
-            output: Array[float32], shape (bsz, n_heads, H, n_blocks)
+            output: Array[float32], shape (bsz, n_heads, H)
                 Return in (new_state, output) order to be consistent with
                 output signature (carry, y) of scan functions, e.g. jax.lax.scan or nn.scan
         """
 
-        # Remove singleton axes
-        inpt = inpt[:, 0, :, 0]
+        inpt = inpt[:, 0, :]  # Remove singleton axes. Now, (bsz, H)
 
         # Apply single SSM step; vmap over bsz axis
         # Recall that we define our state-space model (in the real standard case) as
@@ -320,9 +328,10 @@ class S5SSM(nn.Module):
             raise NotImplementedError(
                 "Activation: {} not implemented".format(self.activation))
 
-        output = y[:,None,:,None]   # Now, (bsz, 1, H, 1)
+        output = y[:,None,:]   # Now, (bsz, 1, H)
         
         return new_state, output
+
 
 def init_S5SSM(d_model, ssm_size, blocks, ssm_args):
     """Convenience function that will be used to initialize the SSM.
@@ -354,7 +363,110 @@ def init_S5SSM(d_model, ssm_size, blocks, ssm_args):
                  **ssm_args)
 
 
+class IdentitySSM(nn.Module):
+    """No-op sequence-to-sequence module.
+
+    For a given input sequence, returns sequence. Used for debugging.
+    """
+
+    def __call__(self, input_sequence, training=True):
+        return input_sequence
+
+    def step(self, state, inpt, training=False):
+        return state, inpt
+
+
+
 class S5Operator(nn.Module):
+    r"""Hyena Hierarchy model with recurrent multiplicative gating and long convolutions.
+
+    In brief, the Hyena Hierarchy model is a recurrence of depth (or order) N consisting of
+        - Element-wise multiplicative gating, as a subquadratic alternative to attention
+          that enables in-context learning,
+        - Long convolutions, to capture longer-range dependencies.
+    This is also referred to as the Hyena recurrence, or the order-N Hyena operator.
+
+    Long convolutions are defined as convolutions with filter sizes = input sequence length,
+    in contrast to "standard" convolutions with filter sizes << input sequence length.
+    Implicit parameterization of convolutions, i.e. as a parametric function of the time
+    step (or more generally, sequence position) have the advantage of decoupling filter
+    length and parameter costs.
+
+    In the original Hyena Hierarchy model, the long convolution was implicitly parameterized
+    by a feed-forward neural network (FFN) and a short explicit filter. While the neural
+    implicit parameterization of long convolutions can be evaluated efficiently,
+    a disadvantage of such a parametrization is that it loses its recurrent formulation,
+    and therefore the fast autoregressive generation that a DSSM parameterization of
+    convolutions can provide.
+
+    The use of the short explicit filter is not well motivated or experimentally justified
+    in the Hyena paper, but anecdotally it has been observed to improving training for
+    order / window size of ~3. It is suggested to be an learnable implementation of the
+    (fixed) shift SSM proposed in the H3 paper, which assisted with associative recall tasks.
+    It can also be partly motivated by its similarity to "smeared keys", or the linear
+    combination of current and previous tokens, that Olsson et al. argued are what allow
+    attention-based models to form induction heads and perform in-context learning.
+
+    This module implements the Hyena recurrence and provides the optionality (TODO) to choose
+    between long convolution filter parameterization classes.
+
+    Arguments
+        d_model: int. Dimension of model inputs.
+        n_layer: int. Number of model layers, (used for special scaled init)
+            # TODO Documentation needed
+        l_max: int. Maximum input sequence length.
+        ssm_size: int. State dimension of DSSM
+        ssm_blocks: int. Number of HiPPO blocks to initialze DSSM state matrix
+        order: int. Depth of the Hyena recurrence. default: 2, equivalent to H3 recurrence.
+        num_heads: int. Number of heads.  default: 1.  # TODO more documentation needed
+            Number of heads.
+        inner_factor: int. Projection dimension multiplier. default: 1.
+        num_blocks: int. Number of blocks in sequence length. default: 1.
+            Number of blocks to divide input sequence length into in order to fit in
+            GPU SRAM. This is used to efficiently compute FFT-based convolutions with
+            the Fused Block FFTConv (described in H3 paper). Not used here.
+        fused_bias_fc: bool. Whether to use fused bias FC. default: False
+            Whether to use fused dense projection module from the FlashAttention repo.
+            Not used here because JAX implementation.
+        outer_mixing: bool. Whether to mix the features of different projections. default: False.
+            TODO Not implemented yet.
+        drop_rate: float. Dropout probability. default: 0.0.
+        filter_dropout: float. Filter dropout rate. default: 0.0
+            Not implemented in Hyena-filter, and not used here.
+        filter_cls: str. Class to parameterize long convolutional filter.
+        post_order_ffn: bool. Whether to apply a dense layer between hyena recurrent projections. default: False.
+            Only potentially useful if order > 2. If order = 2, then simply adds an extra projection
+            before the output projection and the MLP.
+        jit_filter: bool. Whether JIT the implicit filter function. Defaults to False
+        short_filter_order: int. Length of the explicit short convolutional filter. default: 3.
+            Only used when evaluating `self.__call__`, not used in `self.step` (AR generation).
+            If short_filter_order=0, do not apply convolutional filter to input.
+            Applying filter has nice properties for training, but is not necessary.
+        activation_type: str. type of activation between kernel output and FFN. default: 'id'
+        return_state: bool. whether to return a state.
+        filter_args: dict, optional. Keyword arguments to pass to filter class. default: None.
+        d_output: int (optional). default: None.
+            Dimension of model outputs. If None, d_output set to d_model.        
+
+    Parameters (trainable)
+
+    Variables (non-trainable)
+
+    References
+    ----------
+    Fu*, Dao* et al. (2022).
+    "Hungry Hungry Hippos (H3): Towards Language Modeling with SSMs."
+    https://arxiv.org/abs/2212.14052
+
+    Olsson et al. (2022). "In-context learning and induction heads."
+    https://arxiv.org/abs/2209.11895
+
+    Poli, Massaroli, Nguyen, et al. (ICML, 2023).
+    "Hyena Hierarchy: Towards Larger Convolutional Language Models."
+    https://arxiv.org/pdf/2302.10866.pdf
+
+    """
+
     d_model: int
     n_layer: int
     l_max: int
@@ -376,33 +488,29 @@ class S5Operator(nn.Module):
     return_state: bool = False
     filter_args: dict = None
 
+    @property
+    def d_output(self):
+        return self.d_model
+
     def setup(self):
-        r"""
-        Hyena operator described in the paper https://arxiv.org/pdf/2302.10866.pdf
+        if self.d_model % self.num_heads != 0:
+            raise ValueError(f"Input dimension {self.d_model} must be divisible by the number of heads {self.num_heads}.")
+        
+        if self.l_max % self.num_blocks != 0:
+            raise ValueError(f"Maximum sequence length {self.l_max} must be divisible by block dimension {self.num_blocks}")
 
-        Args:
-            d_model (int): Dimension of the input and output embeddings (width of the layer)
-            n_layer (int): # of model layers, (used for special scaled init)
-            l_max: (int): Maximum input sequence length. Defaults to None
-            ssm_size: (int): Size of the ssm
-            ssm_blocks: (int): Number of initial blocks to use when initialzing SSM state matrix
-            order: (int): Depth of the Hyena recurrence. Defaults to 2
-            num_heads: (int): Number of heads. Defaults to 1
-            inner_factor: (int): Width multiplier. Defaults to 1
-            num_blocks: (int): Number of blocks in sequence length. Defaults to 1
-            fused_bias_fc: (bool): Whether to use fused bias FC. Defaults to False
-            drop_rate: (float): Dropout probability. Defaults to 0.0
-            filter_dropout: (float): Dropout probability for the filter. Defaults to 0.0
-            post_order_ffn: (bool): Apply a dense layer between steps of the recurrence. Defaults to False
-            jit_filter: (bool): Whether JIT the implicit filter function. Defaults to False
-            short_filter_order: (int): Length of the explicit input convolutional filter. Defaults to 3
-            activation_type: (str): type of act between kernel output and FF (default identity)
-            return_state: (bool): whether to return a state
-        """
+        if (self.order > 2):
+            print("WARNING: order > 2 recurrence is fine for parallel mode, but is erroneous in autoregressive mode.")
+            
+        if (self.num_heads > 1):
+            raise ValueError(
+                f"num_heads > 1 is not supported for filter class {self.filter_cls}, but got {self.num_heads}. "
+                "Increasing number of heads likely doesn't contribute much to digonal SSM implentation."
+            )
+        
+        if (self.num_blocks > 1):
+            raise ValueError(f"num_blocks > 1 is not supported for filter class {self.filter_cls}, but got {self.num_blocks}.")
 
-        assert self.d_model % self.num_heads == 0, f'Model dimension {self.d_model} must be divisible by num heads {self.num_heads}'
-        assert self.l_max % self.num_blocks == 0, f'Maximum signal length {self.l_max} must be divisible by block dimension {self.num_blocks}'
-        block_dim = self.l_max // self.num_blocks
         self.head_dim = self.d_model // self.num_heads
 
         self.activation = Activation(self.activation_type)
@@ -411,7 +519,7 @@ class S5Operator(nn.Module):
         self.setup_filters(self.filter_cls, self.filter_args)
 
     def setup_projections(self, fused_bias_fc, inner_factor, initializer_range=0.02):
-        "Initializes input and output projections (over the width dimension)"
+        """Initializes input and output projections (over the width dimension)"""
 
         # if fused_bias_fc and FusedDense is None:
         if fused_bias_fc:
@@ -420,8 +528,8 @@ class S5Operator(nn.Module):
             linear_cls = nn.Dense
 
         out_kernel_init = flax_normal(stddev=initializer_range / math.sqrt(2 * self.n_layer))
-        self.out_proj = linear_cls(self.d_model, kernel_init=out_kernel_init)
-        self.in_proj = linear_cls((self.order + 1) * self.d_model)
+        self.out_proj = linear_cls(inner_factor * self.d_model, kernel_init=out_kernel_init) 
+        self.in_proj = linear_cls(inner_factor * (self.order + 1) * self.d_model)
         if self.post_order_ffn:
             self.ord_proj_w = self.param("ord_proj_w",
                                          normal(stddev=1/math.sqrt(self.head_dim)),
@@ -430,61 +538,164 @@ class S5Operator(nn.Module):
     def setup_filters(self, filter_cls, filter_args):
         "Initializes the explicit and implicit filters"
         assert self.order >= 2, f'Order must be at least 2, (got {self.order})'
-        total_width = self.d_model * self.inner_factor * (self.order + 1)
+        
+        d_inner = self.d_model * self.inner_factor * (self.order + 1)
 
-        self.short_filter = nn.Conv(total_width,
-                                    [self.short_filter_order],
-                                    feature_group_count=total_width,
-                                    padding=self.short_filter_order - 1)
+        if self.short_filter_order > 0:
+            self.short_filter = nn.Conv(d_inner,
+                                        [self.short_filter_order],
+                                        feature_group_count=d_inner,
+                                        padding=self.short_filter_order - 1)
 
         if self.filter_cls == 'hyena_S5':
-            # print('Using S5 for filters')
-            self.filter_fn = [init_S5SSM(self.d_model, self.ssm_size, self.ssm_blocks, filter_args) for _ in range(self.order-1)]
+            self.filter_fn = [
+                init_S5SSM(self.d_model * self.inner_factor, self.ssm_size, self.ssm_blocks, filter_args)
+                for _ in range(self.order-1)
+            ]
+        elif self.filter_cls == 'identity':
+            self.filter_fn = [IdentitySSM() for _ in range(self.order-1)]
         else:
             raise NotImplementedError("filter {} not implemented".format(self.filter_cls))
 
     @nn.compact
-    def __call__(self, u, training):
-        l = u.shape[-2]
-        l_filter = min(l, self.l_max)
-        u = self.in_proj(u)
-        # u = rearrange(u, 'b l d -> b d l')
+    def __call__(self, input_sequence, training: bool):
+        """Apply order-N Hyena recurence to an input sequence
 
-        # note u is still 'b l d'
-        uc = self.short_filter(u)[:, :l_filter]
-        # uc is 'b l d'
-        uc = rearrange(uc, 'b l d -> b d l')
-        uc = rearrange(uc, 'b (ho v) (z l) -> b ho v z l',
-                       z=self.num_blocks,
-                       ho=self.num_heads,
-                       v=self.head_dim * (self.order + 1)
-                       )
+        Args:
+            input_sequence: Array[float32], shape (bsz, seq_len, d_model)
+            training: bool. If True, model is in training mode and dropout should be used.
+        
+        Returns:
+            output_sequence: Array[float32], shape (bsz, seq_len, d_output)
+        """      
 
-        width = uc.shape[2]
-        split_width = int(width // self.d_model)
-        *x, v = np.split(uc, split_width, axis=2)
+        # Make order+1 linear projections of the input, each with width (inner_factor * d_model,)
+        # These projections are denoted as (v, x1, ..., xN) in the Hyena paper (Defn. 3.1)
+        # u: shape (bsz, seq_len, d_inner), where d_inner = (order+1) * (inner_factor * d_model)
+        u = self.in_proj(input_sequence)
 
-        for o, x_i in enumerate(reversed(x[1:])):
+        # Apply short convolution, if specified
+        if self.short_filter_order > 0:
+            seq_len = input_sequence.shape[-2]
+            l_filter = min(seq_len, self.l_max)
+            uc = self.short_filter(u)[:, :l_filter]  # Short 1d convolution
+        else:
+            uc = u
+
+        # Reshape linear projections for multi-headed operation (not implemented)
+        # and applying filter to blocks of the sequence length (not implemened).
+        d_inner = uc.shape[-1]
+        uc = rearrange(uc, 'b l d -> b d l')  # now, bsz, d_inner, seq_len)
+        uc = rearrange(
+            uc, 'b (ho v) (z l) -> b ho v z l',
+            z=self.num_blocks, ho=self.num_heads, v=d_inner // self.num_heads,  # z=1, ho=1
+        )
+        # now, (bsz, n_heads, (order+1) * scaled_d_head, n_blocks, seq_len//n_blocks)
+        # where (d_inner // n_heads) = (order+1) * (inner_factor * d_model) // n_heads
+        #                            = (order+1) * (inner_factor * d_head)
+        #                            = (order+1) * scaled_d_head
+
+        # NOTE: The original pytorch implementation (see bottom of comment for permalink)
+        #   > *x, v = uc.split(self.d_model, dim=2)
+        # may have some formulation errors that may not have been detected due to
+        # (likely) only ever using n_heads = 1. Recall that `torch.split(arr, n)` creates
+        # m chunks of size n, whereas `np.split(arr, n)` create n chunks of size m.
+        # So, the original code intended create (order+1,) chunks of size (d_model,).
+        # However, additionally recall the second dimension of uc:
+        #   uc.shape[2] = d_inner // num_heads
+        #               = (self.order + 1) * inner_factor * d_model // num_heads
+        #               = (self.order + 1) * inner_factor * d_head
+        # Therefore, we acually likely want to split the 2nd axis of uc into (order+1,)
+        # chunks of size (inner_factor * d_head,) = scaled_d_head.
+        # https://github.com/HazyResearch/safari/blob/02220c69d247e5473616cd053a443ad99fd2559b/src/models/sequence/hyena.py#L323
+
+        *x, v = np.split(uc, self.order+1, axis=2) # (order+1,) projections, of shape (bsz, n_heads, scaled_d_head, n_blocks, seq_len//n_blocks)
+
+        # Work through linear projections in reverse (Question: Is doing this in reverse important??)
+        for o, x_o in enumerate(reversed(x[1:])):
             if self.outer_mixing:
                 raise NotImplementedError("outer mixing not implemented for hyena_S5 yet")
             else:
-                v = self.dropout(deterministic=not training)(v * x_i)
+                v = self.dropout(deterministic=not training)(v * x_o)
 
-            v = self.filter_fn[o](v)
+            # Apply long convolution
+            v = self.filter_fn[o](v) # input v is ndim=5 (batch_size, ho=1, scaled_d_model, z=1, seq_len)
 
+            # Apply another linear projection before the next recurrent. Not useful if order=2.
             if self.post_order_ffn:
                 w = self.ord_proj_w[o]
                 v = mul_sum(
                     rearrange(w, 'h1 h2 -> 1 h1 h2 1 1 1'), rearrange(v, 'b h v z l -> b h 1 v z l')
                 )
 
-        y = self.activation(rearrange(v * x[0], 'b h v z l -> b (z l) (h v)', z=self.num_blocks, h=self.num_heads))
+        v = v * x[0]  # elementwise-multiply with final projection
+        
+        # Finally, push mixed and convolved projections through activation and output
+        v = rearrange(v, 'b h v z l -> b (z l) (h v)', z=self.num_blocks, h=self.num_heads)  # now, (bsz, seq_len, d_inner)
+        y = self.activation(v)
         y = self.out_proj(y)
 
         if self.return_state:
             return y, None
+
         return y
 
-    @property
-    def d_output(self):
-        return self.d_model
+
+    def step(self, state, inpt):
+        """Apply order-N Hyena recurence to an input.
+
+        Only applicable if self.filter_cls is a module with a `step` function.
+
+        Args:
+            state: Array[float32], shape (bsz, ssm_size)
+                State of implicit filter at last time step.
+            inpt: Array[float32], shape (bsz, d_model).
+        
+        Returns:
+            new_state: Array[complex64], shape (bsz, ssm_size)
+            output: Array[float32], shape (bsz, d_output)
+        """      
+
+        # Make order+1 linear projections of the input, each with width (inner_factor * d_model,)
+        # These projections are denoted as (v, x1, ..., xN) in the Hyena paper (Defn. 3.1)
+        # u: shape (bsz, d_inner), where d_inner = (order+1) * (inner_factor * d_model)
+        u = self.in_proj(inpt)
+
+        uc = u  # Note: A short conv is typically applied in parallel-mode, but N/A in AR-mode
+
+        # Reshape linear projections for multi-headed operation (not implemented)
+        # and applying filter to blocks of the sequence length (not implemened).
+        d_inner = uc.shape[-1]
+        uc = rearrange(
+            uc, 'b (h v) -> b h v', h=self.num_heads, v=d_inner // self.num_heads,  # h=1
+        ) # now, (bsz, n_heads, (order+1)*scaled_d_head),  where scaled_d_head = inner_factor * d_head
+        
+        *x, v = np.split(uc, self.order+1, axis=2) # (order+1,) projections, of shape (bsz, n_heads, scaled_d_head)
+
+        # Work through linear projections in reverse (Question: Is doing this in reverse important??)
+        # NOTE: Retaining for-loop for consistency with __call__, but should NOT be
+        #       looped through more than once, i.e. order = 2). Else, not equivalent to __call__.
+        for o, x_o in enumerate(reversed(x[1:])):
+            if self.outer_mixing:
+                raise NotImplementedError("outer mixing not implemented for hyena_S5 yet")
+            else:
+                v = v * x_o
+
+            # Apply long convolution to projection
+            state, v = self.filter_fn[o].step(state, v)
+
+            # Apply another linear projection before the next recurrent. Not useful if order=2.
+            if self.post_order_ffn:
+                w = self.ord_proj_w[o]
+                v = mul_sum(
+                    rearrange(w, 'h1 h2 -> 1 h1 h2 1'), rearrange(v, 'b h v -> b h 1 v')
+                )  # Not verified!
+
+        v = v * x[0]  # elementwise-multiply with final projection
+        
+        # Finally, push mixed and convolved projections through activation and output
+        v = rearrange(v, 'b h v -> b (h v)', h=self.num_heads)  # now, (bsz, d_inner)
+        y = self.activation(v)
+        y = self.out_proj(y)
+
+        return state, y

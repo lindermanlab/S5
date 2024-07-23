@@ -1,10 +1,8 @@
 """
-To test in double precision, set
-    export JAX_ENABLE_X64=True
-    pytest <this_file>.py
+We test everything in double-precision mode (set at top of file)
+to control for errors and lack of equivalency due to numerical imprecision.
 
-To view more verbose messages, call
-    pytest -s <this_file>.py
+Identified sources of numerical imprecision are noted in the respective test functions.
 """
 
 import pytest
@@ -19,8 +17,11 @@ from s5dev.models.s5 import (
     apply_ssm,
     discretize_zoh,
     init_S5SSM,
+    S5Operator,
     S5SSM
 )
+
+jax.config.update("jax_enable_x64", True)
 
 DEFAULT_RNG = jr.PRNGKey(55553)
 
@@ -83,7 +84,6 @@ def simple_apply_ssm(A, B, C, D, init_state, input_seq, conj_sym):
 @pytest.mark.parametrize("clip_eigs", [True, False])
 def test_apply_ssm(
     C_init, conj_sym, clip_eigs, batch_size=8, seq_len=128, d_input=16, d_state=64, n_blocks=4,
-    atol=1e-4, rtol=1e-1
 ):
     """Evaluate equivalence of `apply_ssm` using parallel scan to simply for loop implementation."""
 
@@ -134,8 +134,8 @@ def test_apply_ssm(
                 + f"P90: {jnp.percentile(err, 90):.1e}). ")
     print(msg)
 
-    numpy.testing.assert_allclose(xs_refr, xs_test, atol=atol, rtol=rtol)
-    numpy.testing.assert_allclose(ys_refr, ys_test, atol=atol, rtol=rtol)
+    numpy.testing.assert_allclose(xs_refr, xs_test)
+    numpy.testing.assert_allclose(ys_refr, ys_test)
 
     assert xs_refr.dtype == jnp.array([], dtype="complex").dtype
 
@@ -144,9 +144,9 @@ def test_apply_ssm(
 @pytest.mark.parametrize("conj_sym", [True, False])
 @pytest.mark.parametrize("clip_eigs", [True, False])
 def test_s5ssm_step(
-    C_init, conj_sym, clip_eigs, batch_size=64, seq_len=8, d_input=12, d_state=4, n_blocks=1, atol=1e-8, rtol=1e-7
+    C_init, conj_sym, clip_eigs, batch_size=64, seq_len=8, d_input=12, d_state=4, n_blocks=1
 ):
-    """Test S5SSM autoregressive generation `step` implementation.
+    """Test S5SSM autoregressive generation via `step` implementation.
     
     Given an input sequence, the autoregressively generated output sequence should be
     the same as the output sequence produced in parallel by applying `__call__`.
@@ -156,14 +156,14 @@ def test_s5ssm_step(
     parallel `__call__` and the autoregressive `step`.
     """
 
-    rng, init_rng, data_rng = jr.split(DEFAULT_RNG, num=3)
+    init_rng, data_rng = jr.split(DEFAULT_RNG)
 
     ssm_kwargs = DEFAULT_S5SSM_KWARGS | {
         "C_init": C_init, "conj_sym": conj_sym, "clip_eigs": clip_eigs
     }
 
     # Generate random input sequence
-    input_seq = jr.normal(rng, shape=(batch_size, seq_len, d_input))
+    input_seq = jr.normal(data_rng, shape=(batch_size, seq_len, d_input))
     input_seq = reshape_for_s5ssm(input_seq)  # shape (bsz, n_heads, d_input, n_blocks, seq_len)
 
     # Initialize S5SSM layer
@@ -177,10 +177,10 @@ def test_s5ssm_step(
     init_state = jnp.zeros((batch_size, model.P), dtype="complex")  # dtype="complex": allow jax backend to set correct precision
     x, ys_test_T = jax.lax.scan(
         lambda state, u_T: model.apply(model_variables, state, u_T.T, method='step'),
-        init_state, input_seq.T
-    )  # ys_test_T shape: (seq_len, bsz, n_heads, H, n_blocks)
+        init_state, input_seq[...,0,:].T
+    )  # ys_test_T shape: (seq_len, bsz, n_heads, H)
 
-    ys_test = jnp.transpose(ys_test_T, (1,2,3,4,0))  # now, (bsz, 1, d_input, 1, seq_len)
+    ys_test = jnp.transpose(ys_test_T[...,None], (1,2,3,4,0))  # now, (bsz, 1, d_input, 1, seq_len)
 
     # To see these statements in console, run `pytest -s ...`
     err = jnp.abs(ys_refr-ys_test)
@@ -189,7 +189,69 @@ def test_s5ssm_step(
         + f"P50: {jnp.percentile(err, 50):.1e}, "
         + f"P90: {jnp.percentile(err, 90):.1e}."
     )
-    numpy.testing.assert_allclose(ys_refr, ys_test, atol=atol, rtol=rtol)
+    numpy.testing.assert_allclose(ys_refr, ys_test)
+
+    assert x.dtype == jnp.array([], dtype="complex").dtype
+    
+
+@pytest.mark.parametrize("filter_cls", ["identity", "hyena_S5"])
+@pytest.mark.parametrize("inner_factor", [1, 3])
+def test_s5operator_step(
+    filter_cls, inner_factor,
+    batch_size=64, seq_len=8, d_input=12,
+    ssm_size=4, ssm_blocks=1,
+):
+    """Test S5Operator autoregressive generation via `step` implementation.
+    
+    Given an input sequence, the autoregressively generated output sequence should be
+    the same as the output sequence produced in parallel by applying `__call__`.
+
+    Note: Equivalence between __call__ and step is only applicable for hyena_order = 2,
+    i.e. no hyena recurrence. If hyena_order > 2, then there is a for-loop that is operating
+    on a (mixed) projection that has been convolved with itself. This is not possible in
+    the AR mode, so it is not applicable to compare to hyena_order > 2.
+
+    Hyperparmeter settings impact the amount of propgated error. For example, we expect
+    longer sequences and larger state dimensions to increase amount of error between the
+    parallel `__call__` and the autoregressive `step`.
+
+    Identified sources of numerical imprecision
+    -------------------------------------------
+    The S5Operator's linear input projection (self.in_proj) was found to introduce O(1e-3)
+    error when inner_factor >= 3.
+
+    """
+
+    init_rng, data_rng = jr.split(DEFAULT_RNG)
+
+    # Generate random input sequence
+    input_seq = jr.normal(data_rng, shape=(batch_size, seq_len, d_input))
+
+    # Initialize S5Operator module
+    model = S5Operator(
+        d_input, n_layer=1, l_max=seq_len,
+        filter_cls=filter_cls, ssm_size=ssm_size, ssm_blocks=ssm_blocks, filter_args=DEFAULT_S5SSM_KWARGS,
+        order=2, inner_factor=inner_factor, drop_rate=0.0,
+        short_filter_order=0,  # short_filter_order=0 required for comparison
+        )
+    model_variables = model.init(init_rng, jnp.zeros_like(input_seq), training=False)
+
+    # Generate reference output, using parallel scan
+    ys_refr = model.apply(model_variables, input_seq, training=False)
+
+    # -----------------------------------------------------------------------------------
+    # Generate output autoregressively
+    init_state = jnp.zeros((batch_size, ssm_size), dtype="complex")  # dtype="complex": allow jax backend to set correct precision
+    x, ys_test_T = jax.lax.scan(
+        lambda state, u: model.apply(model_variables, state, u, method='step'),
+        init_state, jnp.transpose(input_seq, (1,0,2))
+    )  # ys_test_T shape: (seq_len, bsz, d_input)
+
+    ys_test = jnp.transpose(ys_test_T, (1,0,2))  # now, (bsz, seq_len, d_input)
+
+    # -----------------------------------------------------------------------------------
+
+    numpy.testing.assert_allclose(ys_refr, ys_test)
 
     assert x.dtype == jnp.array([], dtype="complex").dtype
     
