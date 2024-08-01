@@ -461,22 +461,30 @@ class LMBackbone(nn.Module):
 
         return hidden_states, residual
 
-    def step(self, state, hidden_state):
+    def step(self, layer_states, hidden_state):
         """Apply LMBackbone to a single input.
         
         Args
-            state: jax.Array, (bsz,...)
-                State of layer (blocks).
+            layer_states: jax.Array, (n_layers, bsz,...)
+                State of each layer (block).
             hidden_state: jax.array, (bsz, d_inner). Equivalent to input_embeddings
+        
+        Returns:
+            new_layer_states: jax.Array, (n_layers, bsz,...)
+            hidden_state: jax.array, (bsz, d_inner)
         """
         residual = None
-        for layer in self.layers:
-            state, hidden_state, residual = layer.step(state, hidden_state, residual)
+
+        new_layer_states = []
+        for layer, layer_state in zip(self.layers, layer_states):
+            new_layer_state, hidden_state, residual = layer.step(layer_state, hidden_state, residual)
+            new_layer_states.append(new_layer_state)
+        new_layer_states = np.array(new_layer_states)
 
         dropped = hidden_state
         residual = (dropped + residual) if residual is not None else dropped
         hidden_state = self.ln_f(residual)
-        return state, hidden_state
+        return new_layer_states, hidden_state
 
 
 class SimpleLMHeadModel(nn.Module):
